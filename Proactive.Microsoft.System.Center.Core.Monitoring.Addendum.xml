@@ -1,0 +1,1170 @@
+﻿<?xml version="1.0" encoding="utf-8"?><ManagementPack ContentReadable="true" SchemaVersion="2.0" OriginalSchemaVersion="1.1" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <Manifest>
+    <Identity>
+      <ID>Proactive.Microsoft.System.Center.Core.Monitoring.Addendum</ID>
+      <Version>1.0.1.6</Version>
+    </Identity>
+    <Name>Proactive Microsoft System Center Core Monitoring Addendum</Name>
+    <References>
+      <Reference Alias="Health">
+        <ID>System.Health.Library</ID>
+        <Version>7.0.8433.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="MSCNL">
+        <ID>Microsoft.SystemCenter.Notifications.Library</ID>
+        <Version>10.19.10050.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="MSIGL">
+        <ID>Microsoft.SystemCenter.InstanceGroup.Library</ID>
+        <Version>7.5.8501.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="SC">
+        <ID>Microsoft.SystemCenter.Library</ID>
+        <Version>7.0.8433.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="SCCM">
+        <ID>Microsoft.SystemCenter.2007</ID>
+        <Version>7.1.10000.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="System">
+        <ID>System.Library</ID>
+        <Version>7.5.8501.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="Windows">
+        <ID>Microsoft.Windows.Library</ID>
+        <Version>7.5.8501.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+    </References>
+  </Manifest>
+  <TypeDefinitions>
+    <EntityTypes>
+      <ClassTypes>
+        <ClassType ID="Proactive.High.Agent.Handle.Count.Servers.Group" Accessibility="Public" Abstract="false" Base="MSIGL!Microsoft.SystemCenter.InstanceGroup" Hosted="false" Singleton="true" Extension="false" />
+      </ClassTypes>
+    </EntityTypes>
+    <ModuleTypes>
+      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource" Accessibility="Internal" Batching="false">
+        <Configuration>
+          <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <OverrideableParameters>
+          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
+                <Scheduler>
+                  <WeeklySchedule>
+                    <Windows>
+                      <Daily>
+                        <Start>10:31</Start>
+                        <End>10:51</End>
+                        <DaysOfWeekMask>62</DaysOfWeekMask>
+                      </Daily>
+                    </Windows>
+                  </WeeklySchedule>
+                  <ExcludeDates />
+                </Scheduler>
+              </DataSource>
+              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1016.ps1</ScriptName>
+                <ScriptBody>
+#=================================================================================
+#  Script to gather SCOMCore alerts and close via on demand task
+#
+#  Author: Kevin Justin
+#  v1.0
+#=================================================================================
+
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging.  
+# ScriptName should be the same as the ID of the module that the script is contained in
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1016.ps1"
+$EventID = "580"
+#=================================================================================
+
+
+# Starting Script section - All scripts get this
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script is starting. `n Running as ($whoami).")
+#=================================================================================
+
+
+# PropertyBag Script section - Monitoring scripts get this
+#=================================================================================
+# Load SCOM PropertyBag function
+$bag = $momapi.CreatePropertyBag()
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+
+#For a simple example - get files in Windows Temp:
+$date = get-date -uFormat "%Y-%m-%d"
+
+# Grab past 24 hours
+if ( (get-date).DayOfWeek -ne "Monday" )
+	{
+	$Time = [DateTime](Get-Date).AddDays(-1)
+	}
+if ( (get-date).DayOfWeek -eq "Monday" )
+	{
+	$Time = [DateTime](Get-Date).AddDays(-3)
+	}
+	
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Gather SCOMCore Alerts for date ($date).")
+$Message = "Proactive DailyTasks SystemCenter Core Monitoring alerts for ($date)" 
+
+# Gather SCOMCore alerts
+## Grab the MP, get the Monitors and Rules from the MP, then grab all alerts found inside the Monitors/Rules
+$SCOMCoreMP = Get-SCOMManagementPack -DisplayName "System Center Core Monitoring"
+$SCOMCoreRules = $SCOMCoreMP.GetRules()
+$SCOMCoreMonitors = $SCOMCoreMP.GetMonitors()
+
+$SCOMCoreReportAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -or ($_.Name -in $SCOMCoreMonitors.DisplayName) }
+$SCOMCoreReportAlerts.Count
+
+$SCOMOpenReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -ne "255" ) }
+$SCOMOpenReportAlerts.Count
+
+$SCOMClosedReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -eq "255" ) }
+$SCOMClosedReportAlerts.Count
+
+$SCOMCoreRuleAlerts = Get-SCOMAlert | ? { ( $_.Name -in $SCOMCoreRules.DisplayName) -AND ( $_.ResolutionState -ne "255" ) }
+$SCOMCoreRuleAlerts.Count
+
+$SCOMCoreMonitorAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreMonitors.DisplayName ) -AND ( $_.ResolutionState -ne "255" ) }
+$SCOMCoreMonitorAlerts.Count
+
+$AutoClosed = $SCOMCoreMonitorAlerts.Count + $SCOMCoreRuleAlerts.Count
+$Test = $SCOMCoreReportAlerts.Count
+
+
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCore alerts gathered for ($date).")
+
+
+# Agent resources alerts
+$AgentResources = $SCOMCoreMonitorAlerts | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost*" ) }
+$AgentResources.Count
+
+if ( $AgentResources.Count -gt 0 )
+	{
+	# All
+	$AgentResourcesFormatted = $AgentResources | ft TimeRaised,NetbiosComputerName,Description -auto -wrap
+	# Break out variants MonitoringHost Private Bytes/Handle Count
+	$PrivateBytes = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Private Bytes*" ) }
+	$PrivateBytes.Count
+	$HandleCount = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Handle Count*" ) }
+	$HandleCount.Count
+
+	# Operations Manager failed alerts
+	$OpsMgrfailedAlerts = $SCOMCoreAlertsSinceLastReport | ? { ( $_.Name -like "Operations Manager failed*" ) `
+		-AND ( $_.Description -like "*The paging file is too small*" )
+		}
+	$OpsMgrfailedAlerts.Count
+	#$OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap
+	}
+	
+# Debug - Tally and build display of $SCOMCoreReportAlerts
+#$SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
+
+# NOT Monitored server alerts
+$NOTMonitoredServers = $SCOMCoreMonitorAlerts | ? { ( $_.Name -eq "Health Service Heartbeat Failure" ) }
+$NOTMonitoredServers.Count
+
+# Remaining alerts
+$Remaining = @()
+$Remaining = $SCOMCoreMonitorAlerts | ? { ( $_.Name -ne "Health Service Heartbeat Failure" ) `
+	-AND ( $_.Name -notlike "Agent Resources Exceeded Threshold: MonitoringHost*" ) `
+	}
+$Remaining.Count
+
+	
+#
+# Create table output	
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+#
+# Create table output (no description)	
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+$Test = $SCOMCoreServerAlerts.count
+
+
+#
+# Build report
+$SCOMCoreAMessage = @()
+
+
+if ( $SCOMCoreReportAlerts.count -eq 0 )
+	{
+	$Message = "ZERO SCOMCore Monitors auto-closed for ($date)"
+	$SCOMCoreAMessage += "ZERO SCOMCore Monitors auto-closed for ($date)"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"$Message")
+	}
+
+
+if ( $SCOMCoreReportAlerts.count -gt 0 )
+	{
+	$SCOMCoreAMessage += $Message
+	$SCOMCoreAMessage += ""
+	$SCOMCoreAMessage += "Alert Count = $Test "
+	$SCOMCoreAMessage += ""
+	$SCOMCoreAMessage += "# SCOMCore Monitors auto-closed"
+	$SCOMCoreAMessage += "#=========================================================="
+	$SCOMCoreAMessage += "# ALL SCOMCore alerts = $($SCOMCoreReportAlerts.Count)"
+	$SCOMCoreAMessage += "#"
+	$SCOMCoreAMessage += "# SCOMCore alerts since last report = $($SCOMCoreAlertsSinceLastReport.Count)"
+	$SCOMCoreAMessage += "#"
+	$SCOMCoreAMessage += "# Open SCOMCore alerts = $($SCOMOpenReportAlerts.Count)"
+	$SCOMCoreAMessage += "# Closed SCOMCore alerts = $($SCOMClosedReportAlerts.Count)"
+	$SCOMCoreAMessage += "#=========================================================="
+	$SCOMCoreAMessage += "#"
+
+	if ( $AgentResources.Count -gt 0 )
+		{
+		$SCOMCoreAMessage += "# Agent Resources alert breakdown"
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "# Agent Private Bytes alerts = $($PrivateBytes.Count)"
+		$SCOMCoreAMessage += "# Agent Handle Count alerts = $($HandleCount.Count)"
+		$SCOMCoreAMessage += "#"
+
+		if ( ( $HandleCount.Count -gt 0 ) -AND ( $HandleCount.count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Handle Count details"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $HandleCount.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 handle count alerts for report run get-scomalert for ALL details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( ( $PrivateBytes.Count -gt 0 ) -AND ( $PrivateBytes.Count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Private Bytes agent alert details"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $PrivateBytes.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 private byte alerts for report run get-scomalert for more details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		}
+		if ( $OpsMgrfailedAlerts -gt 0 )
+			{
+			$SCOMCoreAMessage += "# OperationsManager and 'paging file is too small' alerts"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $Remaining.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# Remaining alerts not classified"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $Remaining | ft TimeRaised,MonitoringObjectDisplayName,Name -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $NOTMonitoredServers.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# 'NOT monitored servers"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += "# 'NOT monitored server count = $($NOTMonitoredServers.Count)"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			if ( $NOTMonitoredServers.Count -gt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored servers greater than 20"
+				}
+			if ( $NOTMonitoredServers.Count -lt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored server detail"			
+				$SCOMCoreAMessage += "#================================================"
+				$SCOMCoreAMessage += $NOTMonitoredServers | ft TimeRaised,MonitoringObjectDisplayName -auto -wrap | out-string
+				$SCOMCoreAMessage += "#================================================"
+				}
+			$SCOMCoreAMessage += ""
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "#"
+			}
+	}
+
+$SCOMCoreAMessage
+
+$SCOMCoreAMessage = $SCOMCoreAMessage | out-string
+
+
+
+
+#
+# If Cleanup needed, array of report monitors
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n# Proactive DailyTasks SystemCenter Core Monitoring monitor reset begins for ($date).")
+
+
+
+# Reset Monitors Script
+# Put ps1 in mgmtpacks folder
+# https://sc.scomurr.com/scom-2012-monitor-reset-cleaning-up-the-environment/
+#	Download
+# https://gallery.technet.microsoft.com/SCOM-2012-Batch-reset-63a17534
+	
+#Alternate
+#https://gallery.technet.microsoft.com/scriptcenter/Auto-reset-script-for-d8b775ca
+
+
+if ( $Test -gt 0 )
+{
+foreach ($MonitorDisplayName in $SCOMCoreMonitors.DisplayName)
+	{
+	$Monitors = @(Get-SCOMMonitor -displayname $MonitorDisplayName)
+
+	# Set up monitor objects to reset
+	foreach ($Monitor in $Monitors)
+		{
+		$MonitorClass = Get-SCOMClass -Id $Monitor.Target.Id
+		$ActiveMonitors = Get-SCOMClassInstance -Class $MonitorClass | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) }
+		write-host "Found" + $ActiveMonitors.Count + "active monitors."
+		if ( $ActiveMonitors -ne $null)
+			{
+			foreach ($ActiveMonitor in $ActiveMonitors)
+				{
+				write-host " Resetting Health State on '" +$ActiveMonitor.FullName + "'" 
+				$ActiveMonitor.ResetMonitoringState($Monitor.ID)
+				}
+			}
+		}
+	}
+}
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset completed for ($date).")
+
+
+
+#
+# (Rules) Alerts to auto close after reset monitor
+
+# Resolve alerts after report built
+$SCOMCoreRuleAlerts | Resolve-SCOMAlert
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring rule closure completed for ($date).")
+
+
+
+#============================================================
+
+
+  $Result = "GOOD"
+  #$Message = "SCOMCore Monitors auto-closed for ($date)"
+
+  $momapi.LogScriptEvent($ScriptName,$EventID,0,"$SCOMCoreAMessage")
+
+#$bag.AddValue('Result',$Result)
+$bag.AddValue('Count',$Test)
+$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$SCOMCoreAMessage)
+
+
+# Return all bags
+$bag
+#=================================================================================
+# End MAIN script section
+ 
+  
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
+                </ScriptBody>
+                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
+              </ProbeAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="PA">
+                <Node ID="Scheduler" />
+              </Node>
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <OutputType>System!System.PropertyBagData</OutputType>
+      </DataSourceModuleType>
+      <WriteActionModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA" Accessibility="Internal" Batching="false">
+        <Configuration>
+          <xsd:element minOccurs="1" name="TimeoutSeconds" type="xsd:integer" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <OverrideableParameters>
+          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <WriteAction ID="PSWA" TypeID="Windows!Microsoft.Windows.PowerShellWriteAction">
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1016.ps1</ScriptName>
+                <ScriptBody>
+#=================================================================================
+#  Script to gather SCOMCore alerts and close via on demand task
+#
+#  Author: Kevin Justin
+#  v1.0
+#=================================================================================
+
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging.  
+# ScriptName should be the same as the ID of the module that the script is contained in
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1016.ps1"
+$EventID = "581"
+#=================================================================================
+
+# Starting Script section - All scripts get this
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script is starting. `n Running as ($whoami).")
+#=================================================================================
+
+
+# PropertyBag Script section - Monitoring scripts get this
+#=================================================================================
+# Load SCOM PropertyBag function
+$bag = $momapi.CreatePropertyBag()
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+
+#For a simple example - get files in Windows Temp:
+$date = get-date -uFormat "%Y-%m-%d"
+
+# Grab past 24 hours
+if ( (get-date).DayOfWeek -ne "Monday" )
+	{
+	$Time = [DateTime](Get-Date).AddDays(-1)
+	}
+if ( (get-date).DayOfWeek -eq "Monday" )
+	{
+	$Time = [DateTime](Get-Date).AddDays(-3)
+	}
+	
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Gather SCOMCore Alerts for date ($date).")
+$Message = "Proactive DailyTasks SystemCenter Core Monitoring alerts for ($date)" 
+
+# Gather SCOMCore alerts
+## Grab the MP, get the Monitors and Rules from the MP, then grab all alerts found inside the Monitors/Rules
+$SCOMCoreMP = Get-SCOMManagementPack -DisplayName "System Center Core Monitoring"
+$SCOMCoreRules = $SCOMCoreMP.GetRules()
+$SCOMCoreMonitors = $SCOMCoreMP.GetMonitors()
+
+$SCOMCoreReportAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -or ($_.Name -in $SCOMCoreMonitors.DisplayName) }
+$SCOMCoreReportAlerts.Count
+
+$SCOMOpenReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -ne "255" ) }
+$SCOMOpenReportAlerts.Count
+
+$SCOMClosedReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -eq "255" ) }
+$SCOMClosedReportAlerts.Count
+
+$SCOMCoreRuleAlerts = Get-SCOMAlert | ? { ( $_.Name -in $SCOMCoreRules.DisplayName) -AND ( $_.ResolutionState -ne "255" ) }
+$SCOMCoreRuleAlerts.Count
+
+$SCOMCoreMonitorAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreMonitors.DisplayName ) -AND ( $_.ResolutionState -ne "255" ) }
+$SCOMCoreMonitorAlerts.Count
+
+$AutoClosed = $SCOMCoreMonitorAlerts.Count + $SCOMCoreRuleAlerts.Count
+$Test = $SCOMCoreReportAlerts.Count
+
+
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCore alerts gathered for ($date).")
+
+
+# Agent resources alerts
+$AgentResources = $SCOMCoreMonitorAlerts | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost*" ) }
+$AgentResources.Count
+
+if ( $AgentResources.Count -gt 0 )
+	{
+	# All
+	$AgentResourcesFormatted = $AgentResources | ft TimeRaised,NetbiosComputerName,Description -auto -wrap
+	# Break out variants MonitoringHost Private Bytes/Handle Count
+	$PrivateBytes = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Private Bytes*" ) }
+	$PrivateBytes.Count
+	$HandleCount = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Handle Count*" ) }
+	$HandleCount.Count
+
+	# Operations Manager failed alerts
+	$OpsMgrfailedAlerts = $SCOMCoreAlertsSinceLastReport | ? { ( $_.Name -like "Operations Manager failed*" ) `
+		-AND ( $_.Description -like "*The paging file is too small*" )
+		}
+	$OpsMgrfailedAlerts.Count
+	#$OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap
+	}
+	
+# Debug - Tally and build display of $SCOMCoreReportAlerts
+#$SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
+
+# NOT Monitored server alerts
+$NOTMonitoredServers = $SCOMCoreMonitorAlerts | ? { ( $_.Name -eq "Health Service Heartbeat Failure" ) }
+$NOTMonitoredServers.Count
+
+# Remaining alerts
+$Remaining = @()
+$Remaining = $SCOMCoreMonitorAlerts | ? { ( $_.Name -ne "Health Service Heartbeat Failure" ) `
+	-AND ( $_.Name -notlike "Agent Resources Exceeded Threshold: MonitoringHost*" ) `
+	}
+$Remaining.Count
+
+	
+#
+# Create table output	
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+#
+# Create table output (no description)	
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+$Test = $SCOMCoreServerAlerts.count
+
+
+#
+# Build report
+$SCOMCoreAMessage = @()
+
+
+if ( $SCOMCoreReportAlerts.count -eq 0 )
+	{
+	$Message = "ZERO SCOMCore Monitors auto-closed for ($date)"
+	$SCOMCoreAMessage += "ZERO SCOMCore Monitors auto-closed for ($date)"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"$Message")
+	}
+
+
+if ( $SCOMCoreReportAlerts.count -gt 0 )
+	{
+	$SCOMCoreAMessage += $Message
+	$SCOMCoreAMessage += ""
+	$SCOMCoreAMessage += "Alert Count = $Test "
+	$SCOMCoreAMessage += ""
+	$SCOMCoreAMessage += "# SCOMCore Monitors auto-closed"
+	$SCOMCoreAMessage += "#=========================================================="
+	$SCOMCoreAMessage += "# ALL SCOMCore alerts = $($SCOMCoreReportAlerts.Count)"
+	$SCOMCoreAMessage += "#"
+	$SCOMCoreAMessage += "# SCOMCore alerts since last report = $($SCOMCoreAlertsSinceLastReport.Count)"
+	$SCOMCoreAMessage += "#"
+	$SCOMCoreAMessage += "# Open SCOMCore alerts = $($SCOMOpenReportAlerts.Count)"
+	$SCOMCoreAMessage += "# Closed SCOMCore alerts = $($SCOMClosedReportAlerts.Count)"
+	$SCOMCoreAMessage += "#=========================================================="
+	$SCOMCoreAMessage += "#"
+
+	if ( $AgentResources.Count -gt 0 )
+		{
+		$SCOMCoreAMessage += "# Agent Resources alert breakdown"
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "# Agent Private Bytes alerts = $($PrivateBytes.Count)"
+		$SCOMCoreAMessage += "# Agent Handle Count alerts = $($HandleCount.Count)"
+		$SCOMCoreAMessage += "#"
+
+		if ( ( $HandleCount.Count -gt 0 ) -AND ( $HandleCount.count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Handle Count details"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $HandleCount.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 handle count alerts for report run get-scomalert for ALL details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( ( $PrivateBytes.Count -gt 0 ) -AND ( $PrivateBytes.Count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Private Bytes agent alert details"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $PrivateBytes.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 private byte alerts for report run get-scomalert for more details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		}
+		if ( $OpsMgrfailedAlerts -gt 0 )
+			{
+			$SCOMCoreAMessage += "# OperationsManager and 'paging file is too small' alerts"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $Remaining.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# Remaining alerts not classified"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $Remaining | ft TimeRaised,MonitoringObjectDisplayName,Name -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $NOTMonitoredServers.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# 'NOT monitored servers"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += "# 'NOT monitored server count = $($NOTMonitoredServers.Count)"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			if ( $NOTMonitoredServers.Count -gt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored servers greater than 20"
+				}
+			if ( $NOTMonitoredServers.Count -lt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored server detail"			
+				$SCOMCoreAMessage += "#================================================"
+				$SCOMCoreAMessage += $NOTMonitoredServers | ft TimeRaised,MonitoringObjectDisplayName -auto -wrap | out-string
+				$SCOMCoreAMessage += "#================================================"
+				}
+			$SCOMCoreAMessage += ""
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "#"
+			}
+	}
+
+$SCOMCoreAMessage
+
+$SCOMCoreAMessage = $SCOMCoreAMessage | out-string
+
+
+
+
+#
+# If Cleanup needed, array of report monitors
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n# Proactive DailyTasks SystemCenter Core Monitoring monitor reset begins for ($date).")
+
+
+
+# Reset Monitors Script
+# Put ps1 in mgmtpacks folder
+# https://sc.scomurr.com/scom-2012-monitor-reset-cleaning-up-the-environment/
+#	Download
+# https://gallery.technet.microsoft.com/SCOM-2012-Batch-reset-63a17534
+	
+#Alternate
+#https://gallery.technet.microsoft.com/scriptcenter/Auto-reset-script-for-d8b775ca
+
+
+if ( $Test -gt 0 )
+{
+foreach ($MonitorDisplayName in $SCOMCoreMonitors.DisplayName)
+	{
+	$Monitors = @(Get-SCOMMonitor -displayname $MonitorDisplayName)
+
+	# Set up monitor objects to reset
+	foreach ($Monitor in $Monitors)
+		{
+		$MonitorClass = Get-SCOMClass -Id $Monitor.Target.Id
+		$ActiveMonitors = Get-SCOMClassInstance -Class $MonitorClass | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) }
+		write-host "Found" + $ActiveMonitors.Count + "active monitors."
+		if ( $ActiveMonitors -ne $null)
+			{
+			foreach ($ActiveMonitor in $ActiveMonitors)
+				{
+				write-host " Resetting Health State on '" +$ActiveMonitor.FullName + "'" 
+				$ActiveMonitor.ResetMonitoringState($Monitor.ID)
+				}
+			}
+		}
+	}
+}
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset completed for ($date).")
+
+
+
+#
+# (Rules) Alerts to auto close after reset monitor
+
+# Resolve alerts after report built
+$SCOMCoreRuleAlerts | Resolve-SCOMAlert
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring rule closure completed for ($date).")
+
+
+
+#============================================================
+
+
+  $Result = "GOOD"
+  #$Message = "SCOMCore Monitors auto-closed for ($date)"
+
+  $momapi.LogScriptEvent($ScriptName,$EventID,0,"$SCOMCoreAMessage")
+
+#$bag.AddValue('Result',$Result)
+$bag.AddValue('Count',$Test)
+$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$SCOMCoreAMessage)
+
+
+# Return all bags
+$bag
+#=================================================================================
+# End MAIN script section
+ 
+  
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
+                </ScriptBody>
+                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
+              </WriteAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="PSWA" />
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <OutputType>System!System.BaseData</OutputType>
+        <InputType>System!System.BaseData</InputType>
+      </WriteActionModuleType>
+    </ModuleTypes>
+    <MonitorTypes>
+      <UnitMonitorType ID="Proactive.SCOMCore.Repeated.Event.MonitorType" Accessibility="Public">
+        <MonitorTypeStates>
+          <MonitorTypeState ID="RepeatedEventRaised" NoDetection="false" />
+          <MonitorTypeState ID="TimerEventRaised" NoDetection="false" />
+        </MonitorTypeStates>
+        <Configuration>
+          <IncludeSchemaTypes>
+            <SchemaType>System!System.ExpressionEvaluatorSchema</SchemaType>
+          </IncludeSchemaTypes>
+          <xsd:element name="ComputerName" type="xsd:string" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="LogName" type="xsd:string" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="ErrorExpression" type="ExpressionType" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="AutoResolveInterval" type="xsd:unsignedInt" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="TimerWindowInSeconds" type="xsd:unsignedInt" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="RepeatCount" type="xsd:unsignedInt" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <MonitorImplementation>
+          <MemberModules>
+            <DataSource ID="ErrorDataSource" TypeID="Windows!Microsoft.Windows.BaseEventProvider">
+              <ComputerName>$Config/ComputerName$</ComputerName>
+              <LogName>$Config/LogName$</LogName>
+            </DataSource>
+            <ProbeAction ID="OnDemandReset" TypeID="System!System.PassThroughProbe" />
+            <ConditionDetection ID="ErrorFilterCondition" TypeID="System!System.ExpressionFilter">
+              <Expression>$Config/ErrorExpression$</Expression>
+            </ConditionDetection>
+            <ConditionDetection ID="RepeatedDataCondition" TypeID="System!System.ConsolidatorCondition">
+              <Consolidator>
+                <ConsolidationProperties />
+                <TimeControl>
+                  <WithinTimeSchedule>
+                    <Interval>$Config/TimerWindowInSeconds$</Interval>
+                  </WithinTimeSchedule>
+                </TimeControl>
+                <CountingCondition>
+                  <Count>$Config/RepeatCount$</Count>
+                  <CountMode>OnNewItemTestOutputRestart_OnTimerSlideByOne</CountMode>
+                </CountingCondition>
+              </Consolidator>
+            </ConditionDetection>
+            <ConditionDetection ID="TimerCondition" TypeID="System!System.TimerCondition">
+              <TimerWaitInSeconds>$Config/AutoResolveInterval$</TimerWaitInSeconds>
+            </ConditionDetection>
+          </MemberModules>
+          <RegularDetections>
+            <RegularDetection MonitorTypeStateID="RepeatedEventRaised">
+              <Node ID="RepeatedDataCondition">
+                <Node ID="ErrorFilterCondition">
+                  <Node ID="ErrorDataSource" />
+                </Node>
+              </Node>
+            </RegularDetection>
+            <RegularDetection MonitorTypeStateID="TimerEventRaised">
+              <Node ID="TimerCondition">
+                <Node ID="RepeatedDataCondition">
+                  <Node ID="ErrorFilterCondition">
+                    <Node ID="ErrorDataSource" />
+                  </Node>
+                </Node>
+              </Node>
+            </RegularDetection>
+          </RegularDetections>
+          <OnDemandDetections>
+            <OnDemandDetection MonitorTypeStateID="TimerEventRaised">
+              <Node ID="OnDemandReset" />
+            </OnDemandDetection>
+          </OnDemandDetections>
+        </MonitorImplementation>
+      </UnitMonitorType>
+    </MonitorTypes>
+  </TypeDefinitions>
+  <Monitoring>
+    <Discoveries>
+      <Discovery ID="Proactive.High.Agent.Handle.Count.Servers.Group.DiscoveryRule" Enabled="true" Target="Proactive.High.Agent.Handle.Count.Servers.Group" ConfirmDelivery="false" Remotable="true" Priority="Normal">
+        <Category>Discovery</Category>
+        <DiscoveryTypes>
+          <DiscoveryRelationship TypeID="MSIGL!Microsoft.SystemCenter.InstanceGroupContainsEntities" />
+        </DiscoveryTypes>
+        <DataSource ID="GroupPopulationDataSource" TypeID="SC!Microsoft.SystemCenter.GroupPopulator">
+          <RuleId>$MPElement$</RuleId>
+          <GroupInstanceId>$MPElement[Name="Proactive.High.Agent.Handle.Count.Servers.Group"]$</GroupInstanceId>
+          <MembershipRules>
+            <MembershipRule>
+              <MonitoringClass>$MPElement[Name="SC!Microsoft.SystemCenter.Agent"]$</MonitoringClass>
+              <RelationshipClass>$MPElement[Name="MSIGL!Microsoft.SystemCenter.InstanceGroupContainsEntities"]$</RelationshipClass>
+              <Expression>
+                <RegExExpression>
+                  <ValueExpression>
+                    <HostProperty>
+                      <MonitoringClass>$MPElement[Name="Windows!Microsoft.Windows.Computer"]$</MonitoringClass>
+                      <Property>$MPElement[Name="Windows!Microsoft.Windows.Computer"]/PrincipalName$</Property>
+                    </HostProperty>
+                  </ValueExpression>
+                  <Operator>MatchesRegularExpression</Operator>
+                  <Pattern>(?i)a1d3|dd3</Pattern>
+                </RegExExpression>
+              </Expression>
+            </MembershipRule>
+          </MembershipRules>
+        </DataSource>
+      </Discovery>
+    </Discoveries>
+    <Rules>
+      <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
+        <Category>Alert</Category>
+        <DataSources>
+          <DataSource ID="DS" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource">
+            <TimeoutSeconds>900</TimeoutSeconds>
+          </DataSource>
+        </DataSources>
+        <WriteActions>
+          <WriteAction ID="WA" TypeID="Health!System.Health.GenerateAlert">
+            <Priority>1</Priority>
+            <Severity>0</Severity>
+            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule.AlertMessage"]$</AlertMessageId>
+            <AlertParameters>
+              <AlertParameter1>$Data/Property[@Name='Count']$</AlertParameter1>
+              <AlertParameter2>$Data/Property[@Name='Message']$</AlertParameter2>
+              <AlertParameter3>$Data/Property[@Name='Summary']$</AlertParameter3>
+            </AlertParameters>
+            <Suppression>
+              <SuppressionValue>$Data/Property[@Name='Message']$</SuppressionValue>
+            </Suppression>
+          </WriteAction>
+        </WriteActions>
+      </Rule>
+      <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
+        <Category>Alert</Category>
+        <DataSources>
+          <DataSource ID="DS" TypeID="Windows!Microsoft.Windows.EventProvider">
+            <LogName>Operations Manager</LogName>
+            <Expression>
+              <And>
+                <Expression>
+                  <SimpleExpression>
+                    <ValueExpression>
+                      <XPathQuery Type="UnsignedInteger">EventDisplayNumber</XPathQuery>
+                    </ValueExpression>
+                    <Operator>Equal</Operator>
+                    <ValueExpression>
+                      <Value Type="UnsignedInteger">581</Value>
+                    </ValueExpression>
+                  </SimpleExpression>
+                </Expression>
+                <Expression>
+                  <SimpleExpression>
+                    <ValueExpression>
+                      <XPathQuery Type="String">PublisherName</XPathQuery>
+                    </ValueExpression>
+                    <Operator>Equal</Operator>
+                    <ValueExpression>
+                      <Value Type="String">Health Service Script</Value>
+                    </ValueExpression>
+                  </SimpleExpression>
+                </Expression>
+                <Expression>
+                  <RegExExpression>
+                    <ValueExpression>
+                      <XPathQuery Type="String">EventDescription</XPathQuery>
+                    </ValueExpression>
+                    <Operator>ContainsSubstring</Operator>
+                    <Pattern>SCOMCore Monitors auto-closed for </Pattern>
+                  </RegExExpression>
+                </Expression>
+              </And>
+            </Expression>
+          </DataSource>
+        </DataSources>
+        <WriteActions>
+          <WriteAction ID="Alert" TypeID="Health!System.Health.GenerateAlert">
+            <Priority>1</Priority>
+            <Severity>0</Severity>
+            <AlertName />
+            <AlertDescription />
+            <AlertOwner />
+            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage"]$</AlertMessageId>
+            <AlertParameters>
+              <AlertParameter1>$Data/EventDescription$</AlertParameter1>
+            </AlertParameters>
+            <Suppression />
+          </WriteAction>
+        </WriteActions>
+      </Rule>
+    </Rules>
+    <Tasks>
+      <Task ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task" Accessibility="Public" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" Timeout="120" Remotable="true">
+        <Category>Custom</Category>
+        <WriteAction ID="PSWA" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA">
+          <TimeoutSeconds>900</TimeoutSeconds>
+        </WriteAction>
+      </Task>
+    </Tasks>
+    <Overrides>
+      <MonitorConfigurationOverride ID="Override.Group.Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold" Context="Proactive.High.Agent.Handle.Count.Servers.Group" ContextInstance="c9736e2d-16ad-7b18-ad65-c617a16e9720" Enforced="false" Monitor="SCCM!Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold" Parameter="Threshold">
+        <Value>50000</Value>
+      </MonitorConfigurationOverride>
+      <MonitorPropertyOverride ID="Override.Microsoft.SystemCenter.HealthService.SystemRulesLoaded" Context="SC!Microsoft.SystemCenter.HealthServiceWatcher" Enforced="false" Monitor="SCCM!Microsoft.SystemCenter.HealthService.SystemRulesLoaded" Property="AlertSeverity">
+        <Value>Warning</Value>
+      </MonitorPropertyOverride>
+      <MonitorPropertyOverride ID="Override.Microsoft.SystemCenter.HealthServiceWatcher.HealthServiceAvailabilityState" Context="SC!Microsoft.SystemCenter.HealthServiceWatcher" Enforced="false" Monitor="SCCM!Microsoft.SystemCenter.HealthServiceWatcher.HealthServiceAvailabilityState" Property="AlertSeverity">
+        <Value>Warning</Value>
+      </MonitorPropertyOverride>
+      <MonitorPropertyOverride ID="Override.AutoResolve.Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Monitor="SCCM!Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold" Property="AutoResolve">
+        <Value>true</Value>
+      </MonitorPropertyOverride>
+      <MonitorPropertyOverride ID="Override.Microsoft.SystemCenter.HealthService.Heartbeat" Context="SC!Microsoft.SystemCenter.HealthServiceWatcher" Enforced="false" Monitor="SCCM!Microsoft.SystemCenter.HealthService.Heartbeat" Property="AlertSeverity">
+        <Value>Warning</Value>
+      </MonitorPropertyOverride>
+      <RuleConfigurationOverride ID="Override.Microsoft.SystemCenter.Alert.SuppressionReplacementFailure" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.Alert.SuppressionReplacementFailure" Parameter="Severity" Module="Alert">
+        <Value>1</Value>
+      </RuleConfigurationOverride>
+      <RulePropertyOverride ID="Override.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedResponses" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedResponses" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Microsoft.SystemCenter.PowerShellModule.AlertOnFailedResponses" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.PowerShellModule.AlertOnFailedResponses" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedInitialization" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedInitialization" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Microsoft.SystemCenter.ServiceCheckDataSourceModule.FailedExecution.Alert" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.ServiceCheckDataSourceModule.FailedExecution.Alert" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Microsoft.SystemCenter.SchedulerDSModule.EventCollection" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.SchedulerDSModule.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disabled.Microsoft.SystemCenter.RegistryProbeModule.EventCollection" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.RegistryProbeModule.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disabled.Microsoft.SystemCenter.Notification.EventCollection" Context="MSCNL!Microsoft.SystemCenter.AlertNotificationSubscriptionServer" Enforced="false" Rule="MSCNL!Microsoft.SystemCenter.Notification.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disable.Microsoft.SystemCenter.ServiceCheckProbeModule.EventCollection" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.ServiceCheckProbeModule.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disable.Microsoft.SystemCenter.WmiEventModule.EventCollection" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.WmiEventModule.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disable.Microsoft.SystemCenter.HealthService.HealthManager.EventCollection" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.HealthService.HealthManager.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disable.Microsoft.SystemCenter.WmiRawPerfCounterModule.EventCollection.Rule" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.WmiRawPerfCounterModule.EventCollection" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+      <RulePropertyOverride ID="Override.Disable.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedCreateProcess.Rule" Context="SC!Microsoft.SystemCenter.HealthService" Enforced="false" Rule="SCCM!Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedCreateProcess" Property="Enabled">
+        <Value>false</Value>
+      </RulePropertyOverride>
+    </Overrides>
+  </Monitoring>
+  <Presentation>
+    <StringResources>
+      <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule.AlertMessage" />
+      <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage" />
+    </StringResources>
+  </Presentation>
+  <LanguagePacks>
+    <LanguagePack ID="ENU" IsDefault="false">
+      <DisplayStrings>
+        <DisplayString ElementID="Proactive.Microsoft.System.Center.Core.Monitoring.Addendum">
+          <Name>Proactive Microsoft System Center Core Monitoring Addendum</Name>
+          <Description>
+v1.0.1.6  18 Jul 2023 Added override to pack
+v1.0.1.5  27 Jun 2023 Reports updated to informational, Event collection rule added
+v1.0.1.4   7 Feb 2023 Updated with cleanup with Remaining and other alert breakdowns
+v1.0.1.3  23 Jan 2023 Updated with MP methods, updated DS/WA reports
+v1.0.1.2   5 Jan 2023 Event collection disabled
+v1.0.0.9  21 Apr 2022 Updated Core Monitoring for handle alerts
+v1.0.0.6   8 Feb 2022 Added 'Management Configuration Service group' alert
+v1.0.0.5  10 Dec 2021 Updated ft to select, re-wrote report for agent threshold, paging, and other errors
+v1.0.0.1   4 May 2021 Updated DS and WA with additional logging, build report first, then cleanup
+v1.0.0.0   6 Apr 2021 Created management pack for SCOM Core mgmt pack auto closure cleanup</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.High.Agent.Handle.Count.Servers.Group">
+          <Name>Proactive High Agent Handle Count servers</Name>
+          <Description>Created 21 Apr 2022 - KWJ - Agent Handle count over 30k to get in this group</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.High.Agent.Handle.Count.Servers.Group.DiscoveryRule">
+          <Name>Populate Proactive High Agent Handle Count servers</Name>
+          <Description>This discovery rule populates the group 'DTRA High Agent Handle Count servers'</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource">
+          <Name>Proactive DailyTasks SCOMCoreAlerts report and auto-close DataSource</Name>
+          <Description>This datasource generates SCOMCoreAlerts report and auto-close DataSource</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA">
+          <Name>Proactive DailyTasks SCOMCoreAlerts report and auto-close on-demand task</Name>
+          <Description>This write-action task generates SCOMCoreAlerts report and auto-close DataSource</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule">
+          <Name>Proactive DailyTasks SCOMCoreAlerts Report Script Alert Rule</Name>
+          <Description>Proactive Scheduled rule to kick off datasource at 0615 M-F</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule.AlertMessage">
+          <Name>Proactive DailyTasks SCOMCoreAlerts Report Script Alert Rule</Name>
+          <Description>{1}
+
+{2}</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task">
+          <Name>Proactive DailyTasks SCOMCoreAlerts Autoclose Report Script Task</Name>
+          <Description>Proactive DailyTasks SCOMCoreAlerts AutoClose task to kick off on-demand</Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Alert.Rule">
+          <Name>Proactive DailyTasks SCOMCoreAlerts task Report Manual Task Rule</Name>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage">
+          <Name>Proactive DailyTasks SCOMCoreAlerts Report Script Task Rule Alert</Name>
+          <Description>{0}</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.HealthService.SystemRulesLoaded">
+          <Name>NotUsed</Name>
+          <Description>2 Apr 2020 - KWJ - Changing severity to warning for unloaded workflows alert</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.HealthServiceWatcher.HealthServiceAvailabilityState">
+          <Name>NotUsed</Name>
+          <Description>Created 1 Apr 2020 - Tuned to warning.  Agent down is not a critical 'wake me up' scenario</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Group.Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold">
+          <Name>NotUsed</Name>
+          <Description>50k on 13 June 2022
+43k on 8 June 2022
+39k on 7 June 2022
+37k on 23 May 2022
+36k on 11 May 2022
+35k on  9 May 2022
+33.5k on 27 Apr 2022
+Created 8 Apr 2020 - high scom agent handle counts</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.AutoResolve.Microsoft.SystemCenter.Agent.MonitoringHost.HandleCountThreshold">
+          <Name>NotUsed</Name>
+          <Description>8 Apr 2020 - Adding alert auto-resolve override</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.HealthService.Heartbeat">
+          <Name>NotUsed</Name>
+          <Description>28 Sept 2020 - KWJ - Changed from critical to warning</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.Alert.SuppressionReplacementFailure">
+          <Name>NotUsed</Name>
+          <Description>13 Nov 2020 - KWJ - Setting to Warning</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedResponses">
+          <Name>NotUsed</Name>
+          <Description>22 Jan 2021 - KWJ - Disabling rule for alert noise</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.PowerShellModule.AlertOnFailedResponses">
+          <Name>NotUsed</Name>
+          <Description>22 Jan 2021 - KWJ - Disabling rule for alert noise</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedInitialization">
+          <Name>NotUsed</Name>
+          <Description>28 Jan 2021 - KWJ - Disabling alert</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.ServiceCheckDataSourceModule.FailedExecution.Alert">
+          <Name>NotUsed</Name>
+          <Description>28 Jan 2021 - KWJ - Disabling alert</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Microsoft.SystemCenter.SchedulerDSModule.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>17 Jun 2022 - KWJ - Disabled event collection rules</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disabled.Microsoft.SystemCenter.RegistryProbeModule.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>5 Jan 2023 - KWJ - Disabling event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disabled.Microsoft.SystemCenter.Notification.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>5 Jan 2023 - KWJ - Disabling event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disable.Microsoft.SystemCenter.ServiceCheckProbeModule.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>5 Jan 2023 - KWJ - Disabling event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disable.Microsoft.SystemCenter.WmiEventModule.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>5 Jan 2023 - KWJ - Disabling event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disable.Microsoft.SystemCenter.HealthService.HealthManager.EventCollection">
+          <Name>NotUsed</Name>
+          <Description>5 Jan 2023 - KWJ - Disabling event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disable.Microsoft.SystemCenter.WmiRawPerfCounterModule.EventCollection.Rule">
+          <Name>NotUsed</Name>
+          <Description>27 June 2023 - Disabling Event collection</Description>
+        </DisplayString>
+        <DisplayString ElementID="Override.Disable.Microsoft.SystemCenter.BatchResponseModule.AlertOnFailedCreateProcess.Rule">
+          <Name>NotUsed</Name>
+          <Description>13 Jul 2023 - Disabling rule</Description>
+        </DisplayString>
+      </DisplayStrings>
+    </LanguagePack>
+  </LanguagePacks>
+</ManagementPack>
