@@ -2,7 +2,7 @@
 
 Download [here](https://github.com/theKevinJustin/SCOMCoreAddendum/blob/main/Microsoft.Windows.Server.DNS.Monitoring.Addendum.xml)
 
-### Microsoft.Windows.Server.DNS.Monitoring.Addendum
+### Proactive.Microsoft.System.Center.Core.Monitoring.Addendum.xml
 Proactive.Microsoft.System.Center.Core.Monitoring.Addendum - Management pack provides multiple overrides, dialy reports, alert closure, DWDataRP integration rule/monitor to point out SCOM DW size and storage issues.  Creates a High agent handle count with definable RegEx.
 
 #### Additional capabilities include:
