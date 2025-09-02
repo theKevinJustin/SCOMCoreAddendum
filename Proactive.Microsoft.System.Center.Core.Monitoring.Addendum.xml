@@ -2,7 +2,7 @@
   <Manifest>
     <Identity>
       <ID>Proactive.Microsoft.System.Center.Core.Monitoring.Addendum</ID>
-      <Version>1.0.2.3</Version>
+      <Version>1.0.2.4</Version>
     </Identity>
     <Name>Proactive Microsoft System Center Core Monitoring Addendum</Name>
     <References>
@@ -55,365 +55,6 @@
       </ClassTypes>
     </EntityTypes>
     <ModuleTypes>
-      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.DataSource" Accessibility="Internal" Batching="false">
-        <Configuration>
-          <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-        </Configuration>
-        <OverrideableParameters>
-          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
-        </OverrideableParameters>
-        <ModuleImplementation Isolation="Any">
-          <Composite>
-            <MemberModules>
-              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
-                <Scheduler>
-                  <WeeklySchedule>
-                    <Windows>
-                      <Daily>
-                        <Start>06:29</Start>
-                        <End>06:49</End>
-                        <DaysOfWeekMask>62</DaysOfWeekMask>
-                      </Daily>
-                    </Windows>
-                  </WeeklySchedule>
-                  <ExcludeDates />
-                </Scheduler>
-              </DataSource>
-              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Datasource.v1023.ps1</ScriptName>
-                <ScriptBody>
-#=================================================================================
-#  Script to gather SCOMCore alerts report
-#
-#  Author: Kevin Justin
-#  v1.0
-#=================================================================================
-
-
-# Constants section - modify stuff here:
-#=================================================================================
-# Assign script name variable for use in event logging.
-# ScriptName should be the same as the ID of the module that the script is contained in
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Datasource.v1023.ps1"
-$EventID = "635"
-#=================================================================================
-
-
-# Starting Script section - All scripts get this
-#=================================================================================
-# Gather the start time of the script
-$StartTime = Get-Date
-#Set variable to be used in logging events
-$whoami = whoami
-# Load MOMScript API
-$momapi = New-Object -comObject MOM.ScriptAPI
-#Log script event that we are starting task
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script is starting.  Running as ($whoami).")
-#=================================================================================
-
-
-# PropertyBag Script section - Monitoring scripts get this
-#=================================================================================
-# Load SCOM PropertyBag function
-$bag = $momapi.CreatePropertyBag()
-#=================================================================================
-
-
-# Begin MAIN script section
-#=================================================================================
-
-#For a simple example - get files in Windows Temp:
-$date = get-date -uFormat "%Y-%m-%d"
-$Age = [DateTime](Get-Date).AddDays(-1)
-
-# Grab past 24 hours
-if ( (get-date).DayOfWeek -ne "Monday" )
-	{
-	$Time = [DateTime](Get-Date).AddDays(-1)
-	}
-if ( (get-date).DayOfWeek -eq "Monday" )
-	{
-	$Time = [DateTime](Get-Date).AddDays(-3)
-	}
-	
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"Gather SCOMCore Alerts for date ($date).")
-$Message = "Proactive DailyTasks SystemCenter Core Monitoring alerts for ($date)"
-
-# Gather SCOMCore alerts
-## Grab the MP, get the Monitors and Rules from the MP, then grab all alerts found inside the Monitors/Rules
-$SCOMCoreMP = Get-SCOMManagementPack -DisplayName "System Center Core Monitoring"
-$SCOMCoreRules = $SCOMCoreMP.GetRules()
-$SCOMCoreMonitors = $SCOMCoreMP.GetMonitors()
-
-$SCOMCoreRuleAlerts
-
-$SCOMCoreReportAlerts = Get-SCOMAlert -ResolutionState (0..254) | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -or ($_.Name -in $SCOMCoreMonitors.DisplayName) }
-$SCOMCoreReportAlerts.Count
-
-$SCOMOpenReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -ne "255" ) }
-$SCOMOpenReportAlerts.Count
-
-$SCOMClosedReportAlerts = Get-SCOMAlert -ResolutionState 255 | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -OR ($_.Name -in $SCOMCoreMonitors.DisplayName) }
-$SCOMClosedReportAlerts.Count
-
-$SCOMCoreRuleAlerts = $SCOMCoreReportAlerts | ? { ( $_.Name -in $SCOMCoreRules.DisplayName) }
-$SCOMCoreRuleAlerts.Count
-
-$SCOMCoreMonitorAlerts = $SCOMCoreReportAlerts | ? { ($_.Name -in $SCOMCoreMonitors.DisplayName ) }
-$SCOMCoreMonitorAlerts.Count
-
-$AutoClosed = $SCOMCoreMonitorAlerts.Count + $SCOMCoreRuleAlerts.Count
-$Test = $SCOMCoreReportAlerts.Count
-
-
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCore alerts gathered for ($date).")
-
-
-# Agent resources alerts
-$AgentResources = $SCOMCoreMonitorAlerts | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost*" ) }
-$AgentResources.Count
-
-if ( $AgentResources.Count -gt 0 )
-	{
-	# All
-	$AgentResourcesFormatted = $AgentResources | ft TimeRaised,NetbiosComputerName,Description -auto -wrap
-	# Break out variants MonitoringHost Private Bytes/Handle Count
-	$PrivateBytes = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Private Bytes*" ) }
-	$PrivateBytes.Count
-	$HandleCount = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Handle Count*" ) }
-	$HandleCount.Count
-
-	# Operations Manager failed alerts
-	$OpsMgrfailedAlerts = $SCOMCoreAlertsSinceLastReport | ? { ( $_.Name -like "Operations Manager failed*" ) `
-		-AND ( $_.Description -like "*The paging file is too small*" )
-		}
-	$OpsMgrfailedAlerts.Count
-	#$OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap
-	}
-	
-# Debug - Tally and build display of $SCOMCoreReportAlerts
-# $SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
-
-# NOT Monitored server alerts
-$NOTMonitoredServers = $SCOMCoreMonitorAlerts | where { ( $_.DisplayName -eq "Health Service Heartbeat Failure" ) -OR ( $_.DisplayName -eq "Computer Not Reachable" ) }
-# $NOTMonitoredServers.Count
-
-# $NOTMonitoredServers.MonitoringObjectDisplayName
-
-$NOTMonitoredArray = @()
-
-$NOTMonitoredArray += "#=========================================================="
-
-Foreach ( $server in $NOTMonitoredServers.MonitoringObjectDisplayName )
-	{
-	if ( $NULL -ne ( test-connection $server -quiet ) )
-		{
-		#write-host "ping/test-connection failed to $($Server)"
-		$NOTMonitoredArray += "ping/test-connection failed to $($Server)"
-		if ( $NULL -eq ( Resolve-DNSName $server) )
-			{
-			#write-host "Not in DNS - nslookup null for $($Server)"
-			$NOTMonitoredArray += "Not in DNS - nslookup null for $($Server)"	
-			}
-		}
-	$SCOMTest = test-netconnection -ComputerName $server -Port 5723
-	if ( ( $SCOMTest.PingSucceeded ) -eq "False" )
-		{
-		#write-host "SCOM port test-NetConnection failed to $($Server)"
-		$NOTMonitoredArray += "SCOM port test-NetConnection failed to $($Server)"
-		}
-	}
-	$NOTMonitoredArray += "#=========================================================="
-
-if ( $NOTMonitoredArray.Count -gt 0 )
-	{
-	if ( ( $NOTMonitoredArray | where { $_ -like "*Not in DNS*" } ).Count -gt 0 )
-		{
-		#write-host "Delete the following servers from SCOM:"
-		#( $NOTMonitoredArray | where { $_ -like "*Not in DNS*" } )
-		$NOTMonitoredArray += ""
-		$NOTMonitoredArray += ""
-		$NOTMonitoredArray += "Delete the following servers from SCOM:"
-		$NOTMonitoredArray += "#=========================================================="
-		$NOTMonitoredArray += $NOTMonitoredArray | where { $_ -like "*Not in DNS*" }
-		$NOTMonitoredArray += "#=========================================================="
-		}
-	}
-
-# $NOTMonitoredArray
-
-
-# Remaining alerts
-$Remaining = @()
-$Remaining = $SCOMCoreMonitorAlerts | ? { ( $_.Name -ne "Health Service Heartbeat Failure" ) `
-	-AND ( $_.Name -notlike "Agent Resources Exceeded Threshold: MonitoringHost*" ) `
-	}
-# $Remaining.Count
-
-	
-#
-# Create table output	
-$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
-
-#
-# Create table output (no description)	
-$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
-
-$Test = $SCOMCoreServerAlerts.count
-
-
-#
-# Build report
-$SCOMCoreAMessage = @()
-
-
-if ( $SCOMCoreReportAlerts.count -eq 0 )
-	{
-	$Message = "ZERO SCOMCore Daily Report Alert for ($date)"
-	$SCOMCoreAMessage += "ZERO SCOMCore Daily Report Alert for ($date)"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"$Message")
-	}
-
-
-if ( $SCOMCoreReportAlerts.count -gt 0 )
-	{
-	$SCOMCoreAMessage += $Message
-	$SCOMCoreAMessage += ""
-	$SCOMCoreAMessage += "Alert Count = $Test "
-	$SCOMCoreAMessage += ""
-	$SCOMCoreAMessage += "# SCOMCore Daily Report Alert for ($date)"
-	$SCOMCoreAMessage += "#=========================================================="
-	$SCOMCoreAMessage += "# ALL SCOMCore alerts = $($SCOMCoreReportAlerts.Count)"
-	$SCOMCoreAMessage += "#"
-	$SCOMCoreAMessage += "# SCOMCore alerts since last report = $($SCOMCoreAlertsSinceLastReport.Count)"
-	$SCOMCoreAMessage += "#"
-	$SCOMCoreAMessage += "# Open SCOMCore alerts = $($SCOMOpenReportAlerts.Count)"
-	$SCOMCoreAMessage += "# Closed SCOMCore alerts = $($SCOMClosedReportAlerts.Count)"
-	$SCOMCoreAMessage += "#=========================================================="
-	$SCOMCoreAMessage += "#"
-
-	if ( $AgentResources.Count -gt 0 )
-		{
-		$SCOMCoreAMessage += "# Agent Resources alert breakdown"
-		$SCOMCoreAMessage += "#================================================"
-		$SCOMCoreAMessage += "# Agent Private Bytes alerts = $($PrivateBytes.Count)"
-		$SCOMCoreAMessage += "# Agent Handle Count alerts = $($HandleCount.Count)"
-		$SCOMCoreAMessage += "#"
-
-		if ( ( $HandleCount.Count -gt 0 ) -AND ( $HandleCount.count -le 10 ) )
-			{
-			$SCOMCoreAMessage += "# Handle Count details"
-			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
-			$SCOMCoreAMessage += ""
-			}
-		if ( $HandleCount.Count -gt 10 )
-			{
-			$SCOMCoreAMessage += "More than 10 handle count alerts for report run get-scomalert for ALL details"
-			$SCOMCoreAMessage += "First 10 alerts displayed"
-			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
-			$SCOMCoreAMessage += ""
-			}
-		if ( ( $PrivateBytes.Count -gt 0 ) -AND ( $PrivateBytes.Count -le 10 ) )
-			{
-			$SCOMCoreAMessage += "# Private Bytes agent alert details"
-			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
-			$SCOMCoreAMessage += ""
-			}
-		if ( $PrivateBytes.Count -gt 10 )
-			{
-			$SCOMCoreAMessage += "More than 10 private byte alerts for report run get-scomalert for more details"
-			$SCOMCoreAMessage += "First 10 alerts displayed"
-			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
-			$SCOMCoreAMessage += ""
-			}
-		}
-		if ( $OpsMgrfailedAlerts -gt 0 )
-			{
-			$SCOMCoreAMessage += "# OperationsManager and 'paging file is too small' alerts"
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += $OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap | out-string
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += ""
-			}
-		if ( $NOTMonitoredServers.Count -gt 0 )
-			{
-			$SCOMCoreAMessage += "# 'NOT monitored servers"
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += "# 'NOT monitored server count = $($NOTMonitoredServers.Count)"
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += ""
-			if ( $NOTMonitoredServers.Count -gt 20 )
-				{
-				$SCOMCoreAMessage += "# 'NOT monitored servers greater than 20"
-				}
-			if ( $NOTMonitoredServers.Count -lt 20 )
-				{
-				$SCOMCoreAMessage += "# 'NOT monitored server detail"			
-				$SCOMCoreAMessage += "#================================================"
-				$SCOMCoreAMessage += $NOTMonitoredArray
-				$SCOMCoreAMessage += "#================================================"
-				}
-			$SCOMCoreAMessage += ""
-		if ( $Remaining.Count -gt 0 )
-			{
-			$SCOMCoreAMessage += "# Remaining alerts not classified"
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += $Remaining | ft TimeRaised,MonitoringObjectDisplayName,Name -auto -wrap | out-string
-			$SCOMCoreAMessage += "#================================================"
-			$SCOMCoreAMessage += ""
-			}
-		$SCOMCoreAMessage += "#================================================"
-		$SCOMCoreAMessage += "#"
-			}
-	}
-
-$SCOMCoreAMessage
-
-$SCOMCoreAMessage = $SCOMCoreAMessage | out-string
-
-
-#============================================================
-
-
-  $Result = "GOOD"
-  #$Message = "SCOMCore Monitors auto-closed for ($date)"
-
-  $momapi.LogScriptEvent($ScriptName,$EventID,0,"$SCOMCoreAMessage")
-
-#$bag.AddValue('Result',$Result)
-$bag.AddValue('Count',$Test)
-$bag.AddValue('Message',$Message)
-$bag.AddValue('Summary',$SCOMCoreAMessage)
-
-
-# Return all bags
-$bag
-#============================================================
-#=================================================================================
-# End MAIN script section
- 
-  
-# End of script section
-#=================================================================================
-#Log an event for script ending and total execution time.
-$EndTime = Get-Date
-$ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
-#=================================================================================
-# End of script
-                </ScriptBody>
-                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
-              </ProbeAction>
-            </MemberModules>
-            <Composition>
-              <Node ID="PA">
-                <Node ID="Scheduler" />
-              </Node>
-            </Composition>
-          </Composite>
-        </ModuleImplementation>
-        <OutputType>System!System.PropertyBagData</OutputType>
-      </DataSourceModuleType>
       <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource" Accessibility="Internal" Batching="false">
         <Configuration>
           <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
@@ -429,8 +70,8 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Comp
                   <WeeklySchedule>
                     <Windows>
                       <Daily>
-                        <Start>06:33</Start>
-                        <End>06:53</End>
+                        <Start>06:31</Start>
+                        <End>06:51</End>
                         <DaysOfWeekMask>62</DaysOfWeekMask>
                       </Daily>
                     </Windows>
@@ -439,7 +80,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Comp
                 </Scheduler>
               </DataSource>
               <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1023.ps1</ScriptName>
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1024.ps1</ScriptName>
                 <ScriptBody>
 #=================================================================================
 #  Script to gather SCOMCore alerts and close via on demand task
@@ -453,7 +94,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Comp
 #=================================================================================
 # Assign script name variable for use in event logging.
 # ScriptName should be the same as the ID of the module that the script is contained in
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1023.ps1"
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Datasource.v1024.ps1"
 $EventID = "630"
 #=================================================================================
 
@@ -467,943 +108,7 @@ $whoami = whoami
 # Load MOMScript API
 $momapi = New-Object -comObject MOM.ScriptAPI
 #Log script event that we are starting task
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOM Core Alerts Close Script is starting.  Running as ($whoami).")
-#=================================================================================
-
-
-# PropertyBag Script section - Monitoring scripts get this
-#=================================================================================
-# Load SCOM PropertyBag function
-$bag = $momapi.CreatePropertyBag()
-#=================================================================================
-
-
-# Begin MAIN script section
-#=================================================================================
-
-#For a simple example - get files in Windows Temp:
-$date = get-date -uFormat "%Y-%m-%d"
-$Age = [DateTime](Get-Date).AddDays(-1)
-
-# Grab past 24 hours
-if ( (get-date).DayOfWeek -ne "Monday" )
-	{
-	$Time = [DateTime](Get-Date).AddDays(-1)
-	}
-if ( (get-date).DayOfWeek -eq "Monday" )
-	{
-	$Time = [DateTime](Get-Date).AddDays(-3)
-	}
-
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"Gather SCOMCore Alerts for date ($date).")
-$Message = "Proactive DailyTasks SystemCenter Core Monitoring alerts for ($date)"
-
-# Gather SCOMCore alerts
-## Grab the MP, get the Monitors and Rules from the MP, then grab all alerts found inside the Monitors/Rules
-
-
-$SCOMCoreMP = Get-SCOMManagementPack -DisplayName "System Center Core Monitoring"
-$SCOMCoreRules = $SCOMCoreMP.GetRules()
-$SCOMCoreMonitors = $SCOMCoreMP.GetMonitors()
-
-$SCOMCoreRuleAlerts
-
-$SCOMCoreReportAlerts = Get-SCOMAlert -ResolutionState (0..254) | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -or ($_.Name -in $SCOMCoreMonitors.DisplayName) }
-$SCOMCoreReportAlerts.Count
-
-$SCOMOpenReportAlerts = $SCOMCoreReportAlerts | ? { ( $_.ResolutionState -ne "255" ) }
-$SCOMOpenReportAlerts.Count
-
-$SCOMClosedReportAlerts = Get-SCOMAlert -ResolutionState 255 | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -OR ($_.Name -in $SCOMCoreMonitors.DisplayName) }
-$SCOMClosedReportAlerts.Count
-
-$SCOMCoreRuleAlerts = $SCOMCoreReportAlerts | ? { ( $_.Name -in $SCOMCoreRules.DisplayName) }
-$SCOMCoreRuleAlerts.Count
-
-$SCOMCoreMonitorAlerts = $SCOMCoreReportAlerts | ? { ($_.Name -in $SCOMCoreMonitors.DisplayName ) }
-$SCOMCoreMonitorAlerts.Count
-
-$AutoClosed = $SCOMCoreMonitorAlerts.Count + $SCOMCoreRuleAlerts.Count
-$Test = $SCOMCoreReportAlerts.Count
-
-
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCore alerts gathered for ($date).")
-
-
-#
-# Build report
-$SCOMCoreAMessage = @()
-
-
-if ( $SCOMCoreReportAlerts.count -eq 0 )
-	{
-	$Message = "ZERO SCOMCore alerts auto-closed for ($date)"
-	$SCOMCoreAMessage += "ZERO SCOMCore alerts auto-closed for ($date)"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"$Message")
-	}
-
-
-if ( $SCOMCoreReportAlerts.count -gt 0 )
-	{
-	$Message = "Proactive DailyTasks SCOMCore alerts auto-closed for ($date)"
-	$SCOMCoreAMessage += $Message
-	$SCOMCoreAMessage += ""
-	$SCOMCoreAMessage += "Alert Count = $Test "
-	$SCOMCoreAMessage += ""
-	$SCOMCoreAMessage += "# SCOMCore alerts auto-closed"
-	$SCOMCoreAMessage += "#=========================================================="
-	$SCOMCoreAMessage += "# ALL SCOMCore alerts = $($SCOMCoreReportAlerts.Count)"
-	$SCOMCoreAMessage += "#"
-	$SCOMCoreAMessage += "# SCOMCore alerts since last report = $($SCOMCoreAlertsSinceLastReport.Count)"
-	$SCOMCoreAMessage += "#"
-	$SCOMCoreAMessage += "# Open SCOMCore alerts = $($SCOMOpenReportAlerts.Count)"
-	$SCOMCoreAMessage += "# Closed SCOMCore alerts = $($SCOMClosedReportAlerts.Count)"
-	$SCOMCoreAMessage += "#=========================================================="
-	$SCOMCoreAMessage += "#"
-	}
-
-$SCOMCoreAMessage
-
-$SCOMCoreAMessage = $SCOMCoreAMessage | out-string
-
-
-#============================================================
-
-
-  $Result = "GOOD"
-  #$Message = "SCOMCore Monitors auto-closed for ($date)"
-
-  $momapi.LogScriptEvent($ScriptName,$EventID,0,"$SCOMCoreAMessage")
-
-#$bag.AddValue('Result',$Result)
-$bag.AddValue('Count',$Test)
-$bag.AddValue('Message',$Message)
-$bag.AddValue('Summary',$SCOMCoreAMessage)
-
-
-# Return all bags
-$bag
-#============================================================
-
-
-#
-# If Cleanup needed, array of report monitors
-
-# Write event for rule closure
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive DailyTasks SystemCenter Core Monitoring monitor reset begins for ($date).")
-
-
-#=================================================================================
-# Reset Monitors Script base code modified
-# Put ps1 in mgmtpacks folder
-# https://sc.scomurr.com/scom-2012-monitor-reset-cleaning-up-the-environment/
-#	Download
-# https://gallery.technet.microsoft.com/SCOM-2012-Batch-reset-63a17534
-	
-#Alternate
-#https://gallery.technet.microsoft.com/scriptcenter/Auto-reset-script-for-d8b775ca
-
-# Changed up logic to sort unique classes in mgmnt pack families.
-# Added Age variable for monitors thanks to Aris Somatis - $Age specified in top level variables
-# Cycling through monitors made reset loop huge ~650 monitors when only ~50 classes
-# New logic reduced runtime from 8 minutes to roughly 8 seconds
-#=================================================================================
-
-# Write event for rule closure
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive DailyTasks SystemCenter Core Monitoring monitor reset started for ($date).")
-
-
-if ( $SCOMCoreReportAlerts.Count -gt 0 )
-	{
-	# Get SCOM Core classes - $SCOMCoreMP
-
-	# SCOMCore pack naming
-	$SCOMCoreClasses = @(Get-SCOMClass -ManagementPack $SCOMCoreMP; )
-	$SCOMCoreClass = $SCOMCoreClasses | sort -property Name -uniq
-	# Debug
-	$SCOMCoreClass.Count
-
-	# Set up monitor objects to reset
-	foreach ($Class in $SCOMCoreClass)
-		{
-		$ActiveMonitors = @(Get-SCOMClassInstance -Class $Class | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) } )
-		# Debug
-		$ActiveMonitors.Count
-		# $ActiveMonitors | fl -property *
-		write-host "Found" $ActiveMonitors.Count "unhealthy monitors for class" $Class
-		foreach ( $UnhealthyOLDMonitor in $ActiveMonitors )
-			{
-			#if ( $UnhealthyOLDMonitor.AvailabilityLastModified -lt $Age )
-			if ( $UnhealthyOLDMonitor.StateLastModified -lt $Age )
-				{
-				#$UnhealthyMonitors += $ActiveMonitors.Count					
-				#UnhealthyOLDMonitor | select AvailabilityLastModified,Path,DisplayName
-				#$UnhealthyOLDMonitor.Count
-				#write-host "Found" + $UnhealthyOLDMonitor.Count + "unhealthy monitor beyond" $Age "days."
-				#write-host ""
-				if ( $ActiveMonitors.Count -gt 0)
-					{
-					foreach ( $ActiveMonitor in $UnhealthyOLDMonitor )
-						{
-						# Debug
-						$ActiveMonitor.ID
-						write-host " Resetting Health State on '" + $ActiveMonitor.FullName + "'" 
-						write-host ""
-						$ActiveMonitor.ResetMonitoringState($ActiveMonitor.ID)
-						}
-					}
-				}
-			}
-		}
-	# Debug
-	#$MonitorClass | fl -property *
-	#$MonitorClass | select DisplayName,ID
-	}
-
-
-# Debug Write event for rule closure
-#===================================
-# $UnhealthyMonitors = $($UnhealthyMonitors | measure-object -sum).sum
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset auto-close completed on ($date).")
-#=================================================================================
-
-#
-# (Rules) Alerts to auto close after reset monitor
-#============================================================
-# Resolve alerts after report built
-$SCOMCoreRulesToClear = $SCOMCoreRuleAlerts | where { ( $_.TimeAdded -lt $Age ) }
-
-# Convert Age back to days for alert properties logging
-$Days = ((Get-date) - $Age).Days
-
-if ( $SCOMCoreRulesToClear.Count -gt 0 )
-	{
-	$SCOMCoreRulesToClear | Resolve-SCOMAlert -Comment "Closing $Days day old alerts after report alert generated - Proactive System Center Core Monitoring Addendum Automation DS"
-	}
-
-# Write event for rule closure
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive System Center Core Monitoring Addendum rule closure completed for ($date).")
-
-
-#=================================================================================
-# End MAIN script section
-
-
-# End of script section
-#=================================================================================
-#Log an event for script ending and total execution time.
-$EndTime = Get-Date
-$ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
-#=================================================================================
-# End of script
-                </ScriptBody>
-                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
-              </ProbeAction>
-            </MemberModules>
-            <Composition>
-              <Node ID="PA">
-                <Node ID="Scheduler" />
-              </Node>
-            </Composition>
-          </Composite>
-        </ModuleImplementation>
-        <OutputType>System!System.PropertyBagData</OutputType>
-      </DataSourceModuleType>
-      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS" Accessibility="Internal" Batching="false">
-        <Configuration>
-		  <xsd:element minOccurs="1" type="xsd:integer" name="IntervalSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-		  <xsd:element minOccurs="0" type="xsd:string" name="SyncTime" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-		  <xsd:element minOccurs="1" type="xsd:string" name="StringParamExample" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-		  <xsd:element minOccurs="1" type="xsd:string" name="ComputerName" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-		  <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />	
-        </Configuration>
-        <OverrideableParameters>
-		  <OverrideableParameter ID="IntervalSeconds" Selector="$Config/IntervalSeconds$" ParameterType="int" />
-		  <OverrideableParameter ID="SyncTime" Selector="$Config/SyncTime$" ParameterType="string" />
-		  <OverrideableParameter ID="StringParamExample" Selector="$Config/StringParamExample$" ParameterType="string" />
-		  <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
-        </OverrideableParameters>
-        <ModuleImplementation Isolation="Any">
-          <Composite>
-            <MemberModules>
-              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
-                <Scheduler>
-                  <SimpleReccuringSchedule>
-                    <Interval Unit="Seconds">$Config/IntervalSeconds$</Interval>
-					<SyncTime>$Config/SyncTime$</SyncTime>
-                  </SimpleReccuringSchedule>
-                  <ExcludeDates />
-                </Scheduler>
-              </DataSource>
-              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS.v1023.ps1</ScriptName>
-                <ScriptBody>
-#=================================================================================
-#  Run DWDataRP tool to gather state/alert/event storage concerns on SCOM DW, and alert for space available
-#
-#  Author:  Kevin Justin
-#  v1.0
-#=================================================================================
-
-Param (
-     [Parameter(
-	 	 Mandatory=$true,
-         ValueFromPipeline=$true,
-	 	 Position=0)]
-		 [String]$StringParamExample,
-     [Parameter(
-	 	 Mandatory=$true,
-         ValueFromPipeline=$true,
-	 	 Position=1)]
-		 [ValidateNotNullorEmpty()]
-		 [String]$ComputerName
-)
-
-# Constants section - modify stuff here:
-#=================================================================================
-# Assign script name variable for use in event logging.  
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS.v1023.ps1"
-$EventID = "631"
-#=================================================================================
-
-
-# Starting Script section - All scripts get this
-#=================================================================================
-# Gather the start time of the script
-$StartTime = Get-Date
-#Set variable to be used in logging events
-$whoami = whoami
-# Load MOMScript API
-$momapi = New-Object -comObject MOM.ScriptAPI
-# Load PropertyBag function 
-$bag = $momapi.CreatePropertyBag()
-#Log script event that we are starting task
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script is starting. `n Running as ($whoami).")
-#=================================================================================
-
-
-# Begin MAIN script section
-#=================================================================================
-#Log script parameters we received
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script parameters passed into datasource: `nStringParamExample: ($StringParamExample) `nComputerName: ($ComputerName).")
-
-$date = get-date -uFormat "%Y-%m-%d"
-
-# Tailor path - lab vs. customer
-# Lab examples
-# cd 'C:\MonAdmin\SCOM Tools\dwdatarp'
-# d: ; cd D:\TOOLS\
-# $ComputerName = "16db02"
-# $StringParamExample = "C:\MonAdmin\Tools\DWDataRP"
-
-# Translate parameter to runtime, showing blank
-# $StringParamExample
-$DWDATARPPATH = $StringParamExample
-write-host -foreground green "$DWDATARPPATH"
-
-cd $DWDATARPPATH
-
-# Check events
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Event Data Set"'
-$EventDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $EventDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $EventDataSet ) 
-	{
-	$EventDataSet
-	$EventDataSet[2]
-
-	$LLineSplit = $EventDataSet[2].Split("(")
-	$EventDBPercent = $LLineSplit[1].Split("%")
-
-	$EventDBPercent[0]
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -eq 1 )
-		{
-		write-host -foreground red "Critical Event Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Event Data set - 100%")
-		}
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Event Data set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Event Data set less than 10%")
-		}
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Event Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Event Data set - between 10-99%")
-		$EventActualPercent = $EventDBPercent[0].Split(" ")
-		$EventActualPercent[1]
-		if ( $EventActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])")
-			}
-		}
-	}
-
-
-# Check performance
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Performance Data Set"'
-$PerfDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $PerfDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $PerfDataSet ) 
-	{
-	$PerfDataSet
-	$PerfDataSet[3]
-
-	$LLineSplit = $PerfDataSet[3].Split("(")
-	$PerfDBPercent = $LLineSplit[1].Split("%")
-	$PerfDBPercent[0]
-
-	if ( $($PerfDBPercent[0].Split(" ")).Count -eq 1 )
-		{
-		write-host -foreground red "Critical Perf Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Perf Data set - 100%")
-		}
-	if ( $($PerfDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Perf Data set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf Data set less than 10%")
-		}	
-	
-	if ( $($PerfDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Perf Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
-		$PerfActualPercent = $PerfDBPercent[0].Split(" ")
-		$PerfActualPercent[1]
-		if ( $PerfActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])")
-			}
-		}
-	}
-
-
-# Check state
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "State Data Set"'
-$StateDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $StateDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $StateDataSet ) 
-	{
-	$StateDataSet
-	$StateDataSet[3]
-
-	$LLineSplit = $StateDataSet[3].Split("(")
-	$StateDBPercent = $LLineSplit[1].Split("%")
-	$StateDBPercent[0]
-
-	if ( $($StateDBPercent[0].Split(" ")).Count -eq 1 ) 
-		{
-		write-host -foreground red "Critical State Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical State Data set - 100%")
-		}
-	if ( $($StateDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Perf State set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf State set less than 10%")
-		}
-	if ( $($StateDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Perf Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
-		$StateActualPercent = $StateDBPercent[0].Split(" ")
-		$StateActualPercent[1]
-		if ( $StateActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])")
-			}
-		}
-	}
-
-
-# Provide all DWDataRP output for review
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW'
-$AllDWDataRPOutput = Invoke-Expression $Command
-
-if ( $NULL -eq $AllDWDataRPOutput ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-
-if ( $NULL -ne $AllDWDataRPOutput ) 
-	{
-	# $AllDWDataRPOutput
-
-	# Combine output into single alert/event
-	$Summary = @()
-
-	$Summary += "#"
-	$Summary += "# DWDataRP Rule DS Script for $($date)"
-	$Summary += "#"
-	$Summary += ""
-	$Summary += "# Event DW retention"
-	$Summary += "#============================================"
-	$Summary += $EventDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# Performance DW retention"
-	$Summary += "#============================================"
-	$Summary += $PerfDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# State DW retention"
-	$Summary += "#============================================"
-	$Summary += $StateDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# Full DWDataRP output"
-	$Summary += "#============================================"
-	$Summary += $AllDWDataRPOutput
-	$Summary += "#============================================"
-	$Summary += ""
-
-	$DWDataRPReport = $Summary | out-string
-
-	#$DWDataRPReport
-	}
-
-# Create event and stage property bag
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"$DWDataRPReport")
-
-$Result = "BAD"
-$Message = "DWDataRP Rule DS Script for $($date)"
-
-
-$bag.AddValue('Result',$Result)
-#$bag.AddValue('Count',$Test)
-$bag.AddValue('Message',$Message)
-$bag.AddValue('Summary',$DWDataRPReport)
-
-
-# Return all bags
-$bag
-#=================================================================================
-# End MAIN script section
-
-
-# End of script section
-#=================================================================================
-#Log an event for script ending and total execution time.
-$EndTime = Get-Date
-$ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
-#=================================================================================
-# End of script
-                </ScriptBody>
-                <Parameters>
-                  <Parameter>
-                    <Name>StringParamExample</Name>
-                    <Value>$Config/StringParamExample$</Value>									
-                  </Parameter>
-                  <Parameter>
-                    <Name>ComputerName</Name>
-                    <Value>$Config/ComputerName$</Value>									
-                  </Parameter>				  
-                </Parameters>				
-                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
-              </ProbeAction>
-            </MemberModules>
-            <Composition>
-              <Node ID="PA">
-                <Node ID="Scheduler" />
-              </Node>
-            </Composition>
-          </Composite>
-        </ModuleImplementation>
-        <OutputType>System!System.PropertyBagData</OutputType>
-      </DataSourceModuleType>
-      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Script.Alert.Rule.Datasource" Accessibility="Internal" Batching="false">
-        <Configuration>
-          <xsd:element minOccurs="1" type="xsd:integer" name="IntervalSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-          <xsd:element minOccurs="0" type="xsd:string" name="SyncTime" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-          <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />	
-          <xsd:element minOccurs="1" type="xsd:string" name="StringParamExample" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-		  <xsd:element minOccurs="1" type="xsd:string" name="ComputerName" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-        </Configuration>
-        <OverrideableParameters>
-          <OverrideableParameter ID="IntervalSeconds" Selector="$Config/IntervalSeconds$" ParameterType="int" />
-          <OverrideableParameter ID="SyncTime" Selector="$Config/SyncTime$" ParameterType="string" />
-          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
-		  <OverrideableParameter ID="StringParamExample" Selector="$Config/StringParamExample$" ParameterType="string" />	  
-        </OverrideableParameters>
-        <ModuleImplementation Isolation="Any">
-          <Composite>
-            <MemberModules>
-              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
-                <Scheduler>
-                  <SimpleReccuringSchedule>
-                    <Interval Unit="Seconds">$Config/IntervalSeconds$</Interval>
-					<SyncTime>$Config/SyncTime$</SyncTime>
-                  </SimpleReccuringSchedule>
-                  <ExcludeDates />
-                </Scheduler>
-              </DataSource>
-              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Rule.DS.v1023.ps1</ScriptName>
-                <ScriptBody>
-#=================================================================================
-#  Run DWDataRP tool to gather state/alert/event storage concerns on SCOM DW, and alert for space available
-#
-#  Author:  Kevin Justin
-#  v1.0
-#=================================================================================
-
-Param (
-     [Parameter(
-	 	 Mandatory=$true,
-         ValueFromPipeline=$true,
-	 	 Position=0)]
-		 [String]$StringParamExample,
-     [Parameter(
-	 	 Mandatory=$true,
-         ValueFromPipeline=$true,
-	 	 Position=1)]
-		 [ValidateNotNullorEmpty()]
-		 [String]$ComputerName
-)
-
-# Constants section - modify stuff here:
-#=================================================================================
-# Assign script name variable for use in event logging.  
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Rule.DS.v1023.ps1"
-$EventID = "632"
-#=================================================================================
-
-
-# Starting Script section - All scripts get this
-#=================================================================================
-# Gather the start time of the script
-$StartTime = Get-Date
-#Set variable to be used in logging events
-$whoami = whoami
-# Load MOMScript API
-$momapi = New-Object -comObject MOM.ScriptAPI
-# Load PropertyBag function 
-$bag = $momapi.CreatePropertyBag()
-#Log script event that we are starting task
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Rule DS Script is starting. `n Running as ($whoami).")
-#=================================================================================
-
-
-# Begin MAIN script section
-#=================================================================================
-#Log script parameters we received
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Rule DS Script parameters passed into datasource: `nStringParamExample: ($StringParamExample) `nComputerName: ($ComputerName).")
-
-$date = get-date -uFormat "%Y-%m-%d"
-
-# Tailor path - lab vs. customer
-# Lab examples
-# cd 'C:\MonAdmin\SCOM Tools\dwdatarp'
-# d: ; cd D:\TOOLS\
-# $ComputerName = "16db02"
-# $StringParamExample = "C:\MonAdmin\Tools\DWDataRP"
-
-# Translate parameter to runtime, showing blank
-# $StringParamExample
-$DWDATARPPATH = $StringParamExample
-write-host -foreground green "$DWDATARPPATH"
-
-cd $DWDATARPPATH
-
-# Check events
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Event Data Set"'
-$EventDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $EventDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $EventDataSet ) 
-	{
-	$EventDataSet
-	$EventDataSet[2]
-
-	$LLineSplit = $EventDataSet[2].Split("(")
-	$EventDBPercent = $LLineSplit[1].Split("%")
-
-	$EventDBPercent[0]
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -eq 1 )
-		{
-		write-host -foreground red "Critical Event Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Event Data set - 100%")
-		}
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Event Data set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Event Data set less than 10%")
-		}
-
-	if ( $($EventDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Event Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Event Data set - between 10-99%")
-		$EventActualPercent = $EventDBPercent[0].Split(" ")
-		$EventActualPercent[1]
-		if ( $EventActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])")
-			}
-		}
-	}
-
-
-# Check performance
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Performance Data Set"'
-$PerfDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $PerfDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $PerfDataSet ) 
-	{
-	$PerfDataSet
-	$PerfDataSet[3]
-
-	$LLineSplit = $PerfDataSet[3].Split("(")
-	$PerfDBPercent = $LLineSplit[1].Split("%")
-	$PerfDBPercent[0]
-
-	if ( $($PerfDBPercent[0].Split(" ")).Count -eq 1 )
-		{
-		write-host -foreground red "Critical Perf Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Perf Data set - 100%")
-		}
-	if ( $($PerfDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Perf Data set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf Data set less than 10%")
-		}	
-	
-	if ( $($PerfDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Perf Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
-		$PerfActualPercent = $PerfDBPercent[0].Split(" ")
-		$PerfActualPercent[1]
-		if ( $PerfActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])")
-			}
-		}
-	}
-
-
-# Check state
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "State Data Set"'
-$StateDataSet = Invoke-Expression $Command
-
-if ( $NULL -eq $StateDataSet ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-	
-if ( $NULL -ne $StateDataSet ) 
-	{
-	$StateDataSet
-	$StateDataSet[3]
-
-	$LLineSplit = $StateDataSet[3].Split("(")
-	$StateDBPercent = $LLineSplit[1].Split("%")
-	$StateDBPercent[0]
-
-	if ( $($StateDBPercent[0].Split(" ")).Count -eq 1 ) 
-		{
-		write-host -foreground red "Critical State Data set - 100%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical State Data set - 100%")
-		}
-	if ( $($StateDBPercent[0].Split(" ")).Count -gt 2 )
-		{
-		write-host -foreground green "Perf State set less than 10%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf State set less than 10%")
-		}
-	if ( $($StateDBPercent[0].Split(" ")).Count -eq 2 )
-		{
-		write-host -foreground yellow "Verify Perf Data set - between 10-99%"
-		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
-		$StateActualPercent = $StateDBPercent[0].Split(" ")
-		$StateActualPercent[1]
-		if ( $StateActualPercent[1] -gt 40 )
-			{
-			write-host -foreground yellow "Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])"
-			$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])")
-			}
-		}
-	}
-
-
-# Provide all DWDataRP output for review
-$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW'
-$AllDWDataRPOutput = Invoke-Expression $Command
-
-if ( $NULL -eq $AllDWDataRPOutput ) 
-	{
-	write-host -foreground red "DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631"
-	$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP did not execute, check DWDataRP path, SCOM DW Computer name in Operations Manager EventID 631")	
-	}
-
-if ( $NULL -ne $AllDWDataRPOutput ) 
-	{
-	# $AllDWDataRPOutput
-
-	# Combine output into single alert/event
-	$Summary = @()
-
-	$Summary += "#"
-	$Summary += "# DWDataRP Rule DS Script for $($date)"
-	$Summary += "#"
-	$Summary += ""
-	$Summary += "# Event DW retention"
-	$Summary += "#============================================"
-	$Summary += $EventDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# Performance DW retention"
-	$Summary += "#============================================"
-	$Summary += $PerfDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# State DW retention"
-	$Summary += "#============================================"
-	$Summary += $StateDataSet
-	$Summary += "#============================================"
-	$Summary += ""
-	$Summary += "# Full DWDataRP output"
-	$Summary += "#============================================"
-	$Summary += $AllDWDataRPOutput
-	$Summary += "#============================================"
-	$Summary += ""
-
-	$DWDataRPReport = $Summary | out-string
-
-	#$DWDataRPReport
-	}
-
-# Create event and stage property bag
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"$DWDataRPReport")
-
-$Result = "BAD"
-$Message = "DWDataRP Rule DS Script for $($date)"
-
-
-$bag.AddValue('Result',$Result)
-#$bag.AddValue('Count',$Test)
-$bag.AddValue('Message',$Message)
-$bag.AddValue('Summary',$DWDataRPReport)
-
-
-# Return all bags
-$bag
-#=================================================================================
-# End MAIN script section
-
-
-# End of script section
-#=================================================================================
-#Log an event for script ending and total execution time.
-$EndTime = Get-Date
-$ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
-#=================================================================================
-# End of script
-                </ScriptBody>
-                <Parameters>
-                  <Parameter>
-                    <Name>StringParamExample</Name>
-                    <Value>$Config/StringParamExample$</Value>									
-                  </Parameter>
-                  <Parameter>
-                    <Name>ComputerName</Name>
-                    <Value>$Config/ComputerName$</Value>									
-                  </Parameter>				  
-                </Parameters>					
-                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
-              </ProbeAction>
-            </MemberModules>
-            <Composition>
-              <Node ID="PA">
-                <Node ID="Scheduler" />
-              </Node>
-            </Composition>
-          </Composite>
-        </ModuleImplementation>
-        <OutputType>System!System.PropertyBagData</OutputType>
-      </DataSourceModuleType>
-
-      <WriteActionModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.WA" Accessibility="Internal" Batching="false">
-        <Configuration>
-          <xsd:element minOccurs="1" name="TimeoutSeconds" type="xsd:integer" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
-        </Configuration>
-        <OverrideableParameters>
-          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
-        </OverrideableParameters>
-        <ModuleImplementation Isolation="Any">
-          <Composite>
-            <MemberModules>
-              <WriteAction ID="PSWA" TypeID="Windows!Microsoft.Windows.PowerShellWriteAction">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.WA.v1023.ps1</ScriptName>
-                <ScriptBody>
-#=================================================================================
-#  Script to gather SCOMCore alerts report via on demand task
-#
-#  Author: Kevin Justin
-#  v1.0
-#=================================================================================
-
-
-# Constants section - modify stuff here:
-#=================================================================================
-# Assign script name variable for use in event logging.
-# ScriptName should be the same as the ID of the module that the script is contained in
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.WA.v1023.ps1"
-$EventID = "636"
-#=================================================================================
-
-# Starting Script section - All scripts get this
-#=================================================================================
-# Gather the start time of the script
-$StartTime = Get-Date
-#Set variable to be used in logging events
-$whoami = whoami
-# Load MOMScript API
-$momapi = New-Object -comObject MOM.ScriptAPI
-#Log script event that we are starting task
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script is starting.  Running as ($whoami).")
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"Script is starting.  Running as ($whoami).")
 #=================================================================================
 
 
@@ -1487,64 +192,18 @@ if ( $AgentResources.Count -gt 0 )
 	}
 	
 # Debug - Tally and build display of $SCOMCoreReportAlerts
-# $SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
-
+#$SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
 
 # NOT Monitored server alerts
-$NOTMonitoredServers = $SCOMCoreMonitorAlerts | where { ( $_.DisplayName -eq "Health Service Heartbeat Failure" ) -OR ( $_.DisplayName -eq "Computer Not Reachable" ) }
-# $NOTMonitoredServers.Count
-
-# $NOTMonitoredServers.MonitoringObjectDisplayName
-
-$NOTMonitoredArray = @()
-
-$NOTMonitoredArray += "#=========================================================="
-
-Foreach ( $server in $NOTMonitoredServers.MonitoringObjectDisplayName )
-	{
-	if ( $NULL -ne ( test-connection $server -quiet ) )
-		{
-		#write-host "ping/test-connection failed to $($Server)"
-		$NOTMonitoredArray += "ping/test-connection failed to $($Server)"
-		if ( $NULL -eq ( Resolve-DNSName $server) )
-			{
-			#write-host "Not in DNS - nslookup null for $($Server)"
-			$NOTMonitoredArray += "Not in DNS - nslookup null for $($Server)"	
-			}
-		}
-	$SCOMTest = test-netconnection -ComputerName $server -Port 5723
-	if ( ( $SCOMTest.PingSucceeded ) -eq "False" )
-		{
-		#write-host "SCOM port test-NetConnection failed to $($Server)"
-		$NOTMonitoredArray += "SCOM port test-NetConnection failed to $($Server)"
-		}
-	}
-	$NOTMonitoredArray += "#=========================================================="
-
-if ( $NOTMonitoredArray.Count -gt 0 )
-	{
-	if ( ( $NOTMonitoredArray | where { $_ -like "*Not in DNS*" } ).Count -gt 0 )
-		{
-		#write-host "Delete the following servers from SCOM:"
-		#( $NOTMonitoredArray | where { $_ -like "*Not in DNS*" } )
-		$NOTMonitoredArray += ""
-		$NOTMonitoredArray += ""
-		$NOTMonitoredArray += "Delete the following servers from SCOM:"
-		$NOTMonitoredArray += "#=========================================================="
-		$NOTMonitoredArray += $NOTMonitoredArray | where { $_ -like "*Not in DNS*" }
-		$NOTMonitoredArray += "#=========================================================="
-		}
-	}
-
-# $NOTMonitoredArray
-
+$NOTMonitoredServers = $SCOMCoreMonitorAlerts | ? { ( $_.Name -eq "Health Service Heartbeat Failure" ) }
+$NOTMonitoredServers.Count
 
 # Remaining alerts
 $Remaining = @()
 $Remaining = $SCOMCoreMonitorAlerts | ? { ( $_.Name -ne "Health Service Heartbeat Failure" ) `
 	-AND ( $_.Name -notlike "Agent Resources Exceeded Threshold: MonitoringHost*" ) `
 	}
-#$Remaining.Count
+$Remaining.Count
 
 	
 #
@@ -1685,6 +344,107 @@ $bag.AddValue('Summary',$SCOMCoreAMessage)
 # Return all bags
 $bag
 #============================================================
+
+
+#
+# If Cleanup needed, array of report monitors
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive DailyTasks SystemCenter Core Monitoring monitor reset begins for ($date).")
+
+
+#=================================================================================
+# Reset Monitors Script base code modified
+# Put ps1 in mgmtpacks folder
+# https://sc.scomurr.com/scom-2012-monitor-reset-cleaning-up-the-environment/
+#	Download
+# https://gallery.technet.microsoft.com/SCOM-2012-Batch-reset-63a17534
+	
+#Alternate
+#https://gallery.technet.microsoft.com/scriptcenter/Auto-reset-script-for-d8b775ca
+
+# Changed up logic to sort unique classes in mgmnt pack families.
+# Added Age variable for monitors thanks to Aris Somatis - $Age specified in top level variables
+# Cycling through monitors made reset loop huge ~650 monitors when only ~50 classes
+# New logic reduced runtime from 8 minutes to roughly 8 seconds
+#=================================================================================
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive DailyTasks SystemCenter Core Monitoring monitor reset started for ($date).")
+
+
+if ( $SCOMCoreReportAlerts.Count -gt 0 )
+	{
+	# Get SCOM Core classes - $SCOMCoreMP
+
+	# SCOMCore pack naming
+	$SCOMCoreClasses = @(Get-SCOMClass -ManagementPack $SCOMCoreMP; )
+	$SCOMCoreClass = $SCOMCoreClasses | sort -property Name -uniq
+	# Debug
+	$SCOMCoreClass.Count
+
+	# Set up monitor objects to reset
+	foreach ($Class in $SCOMCoreClass)
+		{
+		$ActiveMonitors = @(Get-SCOMClassInstance -Class $Class | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) } )
+		# Debug
+		$ActiveMonitors.Count
+		# $ActiveMonitors | fl -property *
+		write-host "Found" $ActiveMonitors.Count "unhealthy monitors for class" $Class
+		foreach ( $UnhealthyOLDMonitor in $ActiveMonitors )
+			{
+			#if ( $UnhealthyOLDMonitor.AvailabilityLastModified -lt $Age )
+			if ( $UnhealthyOLDMonitor.StateLastModified -lt $Age )
+				{
+				#$UnhealthyMonitors += $ActiveMonitors.Count					
+				#UnhealthyOLDMonitor | select AvailabilityLastModified,Path,DisplayName
+				#$UnhealthyOLDMonitor.Count
+				#write-host "Found" + $UnhealthyOLDMonitor.Count + "unhealthy monitor beyond" $Age "days."
+				#write-host ""
+				if ( $ActiveMonitors.Count -gt 0)
+					{
+					foreach ( $ActiveMonitor in $UnhealthyOLDMonitor )
+						{
+						# Debug
+						$ActiveMonitor.ID				
+						write-host " Resetting Health State on '" + $ActiveMonitor.FullName + "'" 
+						write-host ""
+						$ActiveMonitor.ResetMonitoringState($ActiveMonitor)
+						}
+					}
+				}
+			}
+		}
+	# Debug
+	#$MonitorClass | fl -property *
+	#$MonitorClass | select DisplayName,ID
+	}
+
+
+# Debug Write event for rule closure
+#===================================
+# $UnhealthyMonitors = $($UnhealthyMonitors | measure-object -sum).sum
+#$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset auto-close completed on ($date).")
+#=================================================================================
+
+#
+# (Rules) Alerts to auto close after reset monitor
+#============================================================
+# Resolve alerts after report built
+$SCOMCoreRulesToClear = $SCOMCoreRuleAlerts | where { ( $_.TimeAdded -lt $Age ) }
+
+# Convert Age back to days for alert properties logging
+$Days = ((Get-date) - $Age).Days
+
+if ( $SCOMCoreRulesToClear.Count -gt 0 )
+	{
+	$SCOMCoreRulesToClear | Resolve-SCOMAlert -Comment "Closing $Days day old alerts after report alert generated - Proactive System Center Core Monitoring Addendum Automation DS"
+	}
+
+# Write event for rule closure
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive System Center Core Monitoring Addendum rule closure completed for ($date).")
+
+
 #=================================================================================
 # End MAIN script section
  
@@ -1694,21 +454,1069 @@ $bag
 #Log an event for script ending and total execution time.
 $EndTime = Get-Date
 $ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
 #=================================================================================
 # End of script
                 </ScriptBody>
                 <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
-              </WriteAction>
+              </ProbeAction>
             </MemberModules>
             <Composition>
-              <Node ID="PSWA" />
+              <Node ID="PA">
+                <Node ID="Scheduler" />
+              </Node>
             </Composition>
           </Composite>
         </ModuleImplementation>
-        <OutputType>System!System.BaseData</OutputType>
-        <InputType>System!System.BaseData</InputType>
-      </WriteActionModuleType>
+        <OutputType>System!System.PropertyBagData</OutputType>
+      </DataSourceModuleType>
+      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS" Accessibility="Internal" Batching="false">
+        <Configuration>
+		  <xsd:element minOccurs="1" type="xsd:integer" name="IntervalSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+		  <xsd:element minOccurs="0" type="xsd:string" name="SyncTime" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+		  <xsd:element minOccurs="1" type="xsd:string" name="StringParamExample" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+		  <xsd:element minOccurs="1" type="xsd:string" name="ComputerName" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+		  <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />	
+        </Configuration>
+        <OverrideableParameters>
+		  <OverrideableParameter ID="IntervalSeconds" Selector="$Config/IntervalSeconds$" ParameterType="int" />
+		  <OverrideableParameter ID="SyncTime" Selector="$Config/SyncTime$" ParameterType="string" />
+		  <OverrideableParameter ID="StringParamExample" Selector="$Config/StringParamExample$" ParameterType="string" />
+		  <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
+                <Scheduler>
+                  <SimpleReccuringSchedule>
+                    <Interval Unit="Seconds">$Config/IntervalSeconds$</Interval>
+					<SyncTime>$Config/SyncTime$</SyncTime>
+                  </SimpleReccuringSchedule>
+                  <ExcludeDates />
+                </Scheduler>
+              </DataSource>
+              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS.v1024.ps1</ScriptName>
+                <ScriptBody>
+#=================================================================================
+#  Run DWDataRP tool to gather state/alert/event storage concerns on SCOM DW, and alert for space available
+#
+#  Author:  Kevin Justin
+#  v1.0
+#=================================================================================
+
+Param (
+     [Parameter(
+	 	 Mandatory=$true,
+         ValueFromPipeline=$true,
+	 	 Position=0)]
+		 [String]$StringParamExample,
+     [Parameter(
+	 	 Mandatory=$true,
+         ValueFromPipeline=$true,
+	 	 Position=1)]
+		 [ValidateNotNullorEmpty()]
+		 [String]$ComputerName
+)
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging.  
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.DS.v1024.ps1"
+$EventID = "631"
+#=================================================================================
+
+
+# Starting Script section - All scripts get this
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+# Load PropertyBag function 
+$bag = $momapi.CreatePropertyBag()
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script is starting. `n Running as ($whoami).")
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+#Log script parameters we received
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script parameters passed into datasource: `nStringParamExample: ($StringParamExample) `nComputerName: ($ComputerName).")
+
+$date = get-date -uFormat "%Y-%m-%d"
+
+# Tailor path - lab vs. customer
+# Lab examples
+# cd 'C:\MonAdmin\SCOM Tools\dwdatarp'
+# d: ; cd D:\TOOLS\
+# $ComputerName = "16db02"
+# $DWDATARPPATH = "C:\MonAdmin\SCOM Tools\dwdatarp"
+
+# Translate parameter to runtime, showing blank
+# $StringParamExample
+$DWDATARPPATH = $StringParamExample
+write-host -foreground green "$DWDATARPPATH"
+
+cd $DWDATARPPATH
+
+# Check events
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Event Data Set"'
+$EventDataSet = Invoke-Expression $Command
+
+$EventDataSet
+$EventDataSet[2]
+
+$LLineSplit = $EventDataSet[2].Split("(")
+$EventDBPercent = $LLineSplit[1].Split("%")
+
+$EventDBPercent[0]
+
+if ( $($EventDBPercent[0].Split(" ")).Count -eq 1 )
+	{
+	write-host -foreground red "Critical Event Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Event Data set - 100%")
+	}
+
+if ( $($EventDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Event Data set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Event Data set less than 10%")
+	}
+
+if ( $($EventDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Event Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Event Data set - between 10-99%")
+	$EventActualPercent = $EventDBPercent[0].Split(" ")
+	$EventActualPercent[1]
+	if ( $EventActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])")
+		}
+	}
+
+# Check performance
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Performance Data Set"'
+$PerfDataSet = Invoke-Expression $Command
+
+$PerfDataSet
+$PerfDataSet[3]
+
+$LLineSplit = $PerfDataSet[3].Split("(")
+$PerfDBPercent = $LLineSplit[1].Split("%")
+$PerfDBPercent[0]
+
+if ( $($PerfDBPercent[0].Split(" ")).Count -eq 1 )
+	{
+	write-host -foreground red "Critical Perf Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Perf Data set - 100%")
+	}
+if ( $($PerfDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Perf Data set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf Data set less than 10%")
+	}	
+	
+if ( $($PerfDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Perf Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
+	$PerfActualPercent = $PerfDBPercent[0].Split(" ")
+	$PerfActualPercent[1]
+	if ( $PerfActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])")
+		}
+	}
+
+# Check state
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "State Data Set"'
+$StateDataSet = Invoke-Expression $Command
+
+$StateDataSet
+$StateDataSet[3]
+
+$LLineSplit = $StateDataSet[3].Split("(")
+$StateDBPercent = $LLineSplit[1].Split("%")
+$StateDBPercent[0]
+if ( $($StateDBPercent[0].Split(" ")).Count -eq 1 ) 
+	{
+	write-host -foreground red "Critical State Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical State Data set - 100%")
+	}
+if ( $($StateDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Perf State set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf State set less than 10%")
+	}
+if ( $($StateDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Perf Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
+	$StateActualPercent = $StateDBPercent[0].Split(" ")
+	$StateActualPercent[1]
+	if ( $StateActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])")
+		}
+	}
+
+# Provide all DWDataRP output for review
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW'
+$AllDWDataRPOutput = Invoke-Expression $Command
+ 
+$AllDWDataRPOutput
+
+# Combine output into single alert/event
+$Summary = @()
+
+$Summary += "#"
+$Summary += "# DWDataRP Rule DS Script for $($date)"
+$Summary += "#"
+$Summary += ""
+$Summary += "# Event DW retention"
+$Summary += "#============================================"
+$Summary += $EventDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# Performance DW retention"
+$Summary += "#============================================"
+$Summary += $PerfDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# State DW retention"
+$Summary += "#============================================"
+$Summary += $StateDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# Full DWDataRP output"
+$Summary += "#============================================"
+$Summary += $AllDWDataRPOutput
+$Summary += "#============================================"
+$Summary += ""
+
+$DWDataRPReport = $Summary | out-string
+
+$DWDataRPReport
+
+
+# Create event and stage property bag
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"$DWDataRPReport")
+
+$Result = "BAD"
+$Message = "DWDataRP Rule DS Script for $($date)"
+
+
+$bag.AddValue('Result',$Result)
+#$bag.AddValue('Count',$Test)
+$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$DWDataRPReport)
+
+
+# Return all bags
+$bag
+#=================================================================================
+# End MAIN script section
+
+
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Monitor DS Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
+                </ScriptBody>
+                <Parameters>
+                  <Parameter>
+                    <Name>StringParamExample</Name>
+                    <Value>$Config/StringParamExample$</Value>									
+                  </Parameter>
+                  <Parameter>
+                    <Name>ComputerName</Name>
+                    <Value>$Config/ComputerName$</Value>									
+                  </Parameter>				  
+                </Parameters>				
+                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
+              </ProbeAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="PA">
+                <Node ID="Scheduler" />
+              </Node>
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <OutputType>System!System.PropertyBagData</OutputType>
+      </DataSourceModuleType>
+      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Script.Alert.Rule.Datasource" Accessibility="Internal" Batching="false">
+        <Configuration>
+          <xsd:element minOccurs="1" type="xsd:integer" name="IntervalSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element minOccurs="0" type="xsd:string" name="SyncTime" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />	
+          <xsd:element minOccurs="1" type="xsd:string" name="StringParamExample" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+		  <xsd:element minOccurs="1" type="xsd:string" name="ComputerName" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <OverrideableParameters>
+          <OverrideableParameter ID="IntervalSeconds" Selector="$Config/IntervalSeconds$" ParameterType="int" />
+          <OverrideableParameter ID="SyncTime" Selector="$Config/SyncTime$" ParameterType="string" />
+          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
+		  <OverrideableParameter ID="StringParamExample" Selector="$Config/StringParamExample$" ParameterType="string" />	  
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
+                <Scheduler>
+                  <SimpleReccuringSchedule>
+                    <Interval Unit="Seconds">$Config/IntervalSeconds$</Interval>
+					<SyncTime>$Config/SyncTime$</SyncTime>
+                  </SimpleReccuringSchedule>
+                  <ExcludeDates />
+                </Scheduler>
+              </DataSource>
+              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Rule.DS.v1024.ps1</ScriptName>
+                <ScriptBody>
+#=================================================================================
+#  Run DWDataRP tool to gather state/alert/event storage concerns on SCOM DW, and alert for space available
+#
+#  Author:  Kevin Justin
+#  v1.0
+#=================================================================================
+
+Param (
+     [Parameter(
+	 	 Mandatory=$true,
+         ValueFromPipeline=$true,
+	 	 Position=0)]
+		 [String]$StringParamExample,
+     [Parameter(
+	 	 Mandatory=$true,
+         ValueFromPipeline=$true,
+	 	 Position=1)]
+		 [ValidateNotNullorEmpty()]
+		 [String]$ComputerName
+)
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging.  
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Rule.DS.v1024.ps1"
+$EventID = "632"
+#=================================================================================
+
+
+# Starting Script section - All scripts get this
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+# Load PropertyBag function 
+$bag = $momapi.CreatePropertyBag()
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Rule DS Script is starting. `n Running as ($whoami).")
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+#Log script parameters we received
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Rule DS Script parameters passed into datasource: `nStringParamExample: ($StringParamExample) `nComputerName: ($ComputerName).")
+
+$date = get-date -uFormat "%Y-%m-%d"
+
+# Tailor path - lab vs. customer
+# Lab examples
+# cd 'C:\MonAdmin\SCOM Tools\dwdatarp'
+# d: ; cd D:\TOOLS\
+# $ComputerName = "16db02"
+# $DWDATARPPATH = "C:\MonAdmin\SCOM Tools\dwdatarp"
+
+# Translate parameter to runtime, showing blank
+# $StringParamExample
+$DWDATARPPATH = $StringParamExample
+write-host -foreground green "$DWDATARPPATH"
+
+cd $DWDATARPPATH
+
+# Check events
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Event Data Set"'
+$EventDataSet = Invoke-Expression $Command
+
+$EventDataSet
+$EventDataSet[2]
+
+$LLineSplit = $EventDataSet[2].Split("(")
+$EventDBPercent = $LLineSplit[1].Split("%")
+
+$EventDBPercent[0]
+
+if ( $($EventDBPercent[0].Split(" ")).Count -eq 1 )
+	{
+	write-host -foreground red "Critical Event Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Event Data set - 100%")
+	}
+
+if ( $($EventDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Event Data set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Event Data set less than 10%")
+	}
+
+if ( $($EventDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Event Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Event Data set - between 10-99%")
+	$EventActualPercent = $EventDBPercent[0].Split(" ")
+	$EventActualPercent[1]
+	if ( $EventActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Event rules to disable, Event Data set percent at $($EventActualPercent[1])")
+		}
+	}
+
+# Check performance
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "Performance Data Set"'
+$PerfDataSet = Invoke-Expression $Command
+
+$PerfDataSet
+$PerfDataSet[3]
+
+$LLineSplit = $PerfDataSet[3].Split("(")
+$PerfDBPercent = $LLineSplit[1].Split("%")
+$PerfDBPercent[0]
+
+if ( $($PerfDBPercent[0].Split(" ")).Count -eq 1 )
+	{
+	write-host -foreground red "Critical Perf Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical Perf Data set - 100%")
+	}
+if ( $($PerfDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Perf Data set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf Data set less than 10%")
+	}	
+	
+if ( $($PerfDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Perf Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
+	$PerfActualPercent = $PerfDBPercent[0].Split(" ")
+	$PerfActualPercent[1]
+	if ( $PerfActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Enabled Performance counter rules to disable, Perf Data set percent at $($PerfActualPercent[1])")
+		}
+	}
+
+# Check state
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW -ds "State Data Set"'
+$StateDataSet = Invoke-Expression $Command
+
+$StateDataSet
+$StateDataSet[3]
+
+$LLineSplit = $StateDataSet[3].Split("(")
+$StateDBPercent = $LLineSplit[1].Split("%")
+$StateDBPercent[0]
+if ( $($StateDBPercent[0].Split(" ")).Count -eq 1 ) 
+	{
+	write-host -foreground red "Critical State Data set - 100%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Critical State Data set - 100%")
+	}
+if ( $($StateDBPercent[0].Split(" ")).Count -gt 2 )
+	{
+	write-host -foreground green "Perf State set less than 10%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Perf State set less than 10%")
+	}
+if ( $($StateDBPercent[0].Split(" ")).Count -eq 2 )
+	{
+	write-host -foreground yellow "Verify Perf Data set - between 10-99%"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Verify Perf Data set - between 10-99%")
+	$StateActualPercent = $StateDBPercent[0].Split(" ")
+	$StateActualPercent[1]
+	if ( $StateActualPercent[1] -gt 40 )
+		{
+		write-host -foreground yellow "Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])"
+		$momapi.LogScriptEvent($ScriptName,$EventID,0,"Look for Config Churn monitors causing state issues, State Data set percent at $($StateActualPercent[1])")
+		}
+	}
+
+# Provide all DWDataRP output for review
+$Command = '.\dwdatarp.exe -s $ComputerName -d OperationsManagerDW'
+$AllDWDataRPOutput = Invoke-Expression $Command
+ 
+$AllDWDataRPOutput
+
+# Combine output into single alert/event
+$Summary = @()
+
+$Summary += "#"
+$Summary += "# DWDataRP Rule DS Script for $($date)"
+$Summary += "#"
+$Summary += ""
+$Summary += "# Event DW retention"
+$Summary += "#============================================"
+$Summary += $EventDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# Performance DW retention"
+$Summary += "#============================================"
+$Summary += $PerfDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# State DW retention"
+$Summary += "#============================================"
+$Summary += $StateDataSet
+$Summary += "#============================================"
+$Summary += ""
+$Summary += "# Full DWDataRP output"
+$Summary += "#============================================"
+$Summary += $AllDWDataRPOutput
+$Summary += "#============================================"
+$Summary += ""
+
+$DWDataRPReport = $Summary | out-string
+
+$DWDataRPReport
+
+
+# Create event and stage property bag
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"$DWDataRPReport")
+
+$Result = "BAD"
+$Message = "DWDataRP Rule DS Script for $($date)"
+
+
+$bag.AddValue('Result',$Result)
+#$bag.AddValue('Count',$Test)
+$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$DWDataRPReport)
+
+
+# Return all bags
+$bag
+#=================================================================================
+# End MAIN script section
+
+
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"DWDataRP Rule DS Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
+                </ScriptBody>
+                <Parameters>
+                  <Parameter>
+                    <Name>StringParamExample</Name>
+                    <Value>$Config/StringParamExample$</Value>									
+                  </Parameter>
+                  <Parameter>
+                    <Name>ComputerName</Name>
+                    <Value>$Config/ComputerName$</Value>									
+                  </Parameter>				  
+                </Parameters>					
+                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
+              </ProbeAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="PA">
+                <Node ID="Scheduler" />
+              </Node>
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <OutputType>System!System.PropertyBagData</OutputType>
+      </DataSourceModuleType>
+      <DataSourceModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Datasource" Accessibility="Internal" Batching="false">
+        <Configuration>
+          <xsd:element minOccurs="1" type="xsd:integer" name="TimeoutSeconds" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <OverrideableParameters>
+          <OverrideableParameter ID="TimeoutSeconds" Selector="$Config/TimeoutSeconds$" ParameterType="int" />
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <DataSource ID="Scheduler" TypeID="System!System.Scheduler">
+                <Scheduler>
+                  <WeeklySchedule>
+                    <Windows>
+                      <Daily>
+                        <Start>07:07</Start>
+                        <End>07:21</End>
+                        <DaysOfWeekMask>2</DaysOfWeekMask>
+                      </Daily>
+                    </Windows>
+                  </WeeklySchedule>
+                  <ExcludeDates />
+                </Scheduler>
+              </DataSource>
+              <ProbeAction ID="PA" TypeID="Windows!Microsoft.Windows.PowerShellPropertyBagTriggerOnlyProbe">
+                <ScriptName>Proactive.Microsoft.SCOMMS.Window.Monitoring.FIPS.Compliance.Script.Datasource.v1024.ps1</ScriptName>
+                <ScriptBody>
+#=================================================================================
+#  Script to check SCOM for FIPS DOTNET configuration script
+#
+#  Author:  Kevin Justin
+#
+#  Version:  1.0
+#
+#=================================================================================
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging
+$ScriptName = "Proactive.Microsoft.SCOMMS.Window.Monitoring.FIPS.Compliance.Script.Datasource.v1024.ps1"
+#$ScriptName = "Proactive.SQL.FIPS.V-214022.WebConsole.DOTNET.Configuration.DataSource.v1024.ps1"
+$EventID = "638"
+#=================================================================================
+
+# Starting Script section
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS WebConsole DOTNET Configuration Script is starting. Running as ($whoami).")
+# PropertyBag Script section - Monitoring scripts get this
+#=================================================================================
+# Load SCOM PropertyBag function
+$bag = $momapi.CreatePropertyBag()
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+#$date = get-date -uFormat "%Y-%m-%d %H%M"
+$date = get-date -uFormat "%Y-%m-%d"
+
+$SCOMServer = $ENV:ComputerName
+
+#================================================================
+# Open PSEXEC -S to create PowerShell session as local system
+#================================================================
+#
+# Test session is running as local system
+#
+# whoami verification.
+#================================================================
+if ( ( whoami | where { $_ -like "NT Authority\system" } ).Count -gt 0 )
+	{
+	write-host "Running as Local System"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Script IS running as Local System")
+	}
+if ( ( whoami | where { $_ -like "NT Authority\system" } ).Count -eq 0 )
+	{
+	write-host "NOT Running as Local System"
+	$NOTLocalSystem = ( whoami | where { $_ -like "NT Authority\system" } ).Count
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Script is NOT Running as Local System")
+	#exit
+	}
+
+
+$Message = "Proactive SCOM STIG V-237439 FIPS WebConsole Configurations Script findings for $($date)"
+
+$FIPSDOTNETConfigSettingsOutput = @()
+
+$FIPSDOTNETConfigSettingsOutput += $Message
+$FIPSDOTNETConfigSettingsOutput += ""
+
+
+# Check FIPS Registry key is configured
+#==========================================
+$RegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy"
+[string]$FIPSEnabled = (Get-ItemProperty -Path $RegPath -Name Enabled).Enabled
+$FIPSEnabled
+
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# FIPS configuration verification on Server $($SCOMServer)"
+$FIPSDOTNETConfigSettingsOutput += "#========================================================="
+
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# FIPS Registry key verification"
+$FIPSDOTNETConfigSettingsOutput += "#==============================="
+	
+if ( $NULL -eq $FIPSEnabled )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' disabled"
+	$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: ENABLE FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy'"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' disabled")
+	}
+
+if ( $FIPSEnabled -eq "0" )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: Enable FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy'"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled")
+	}
+if ( $FIPSEnabled -eq "1" )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled")
+	}
+
+
+# SCOM server web config file mining
+#=======================================
+# SCOM Install variants
+$SCOMInstallPaths = @("Program Files\Microsoft System Center\Operations Manager\WebConsole","Program Files\Microsoft System Center 2016\Operations Manager\WebConsole")
+# SSRS  Install variants
+# $SSRSInstallPaths = @("Program Files\Microsoft SQL Server\MSRS*\Reporting Services\ReportServer","Program Files\Microsoft SQL Server Reporting Services\SSRS\ReportServer")
+# Debug
+#$SCOMInstallPaths
+#$SCOMInstallPaths
+
+
+# Logical disk list
+# Validate logical disks where SCOM and SQL SSRS are installed
+$LogicalDisks = gwmi win32_logicaldisk | where { $_.DeviceID -ne "A:" }
+#$LogicalDisks.DeviceID
+
+foreach ( $LogicalDisk in $LogicalDisks.DeviceID )
+    {
+	#write-host "Logical Disk letter = $LogicalDisk"
+	foreach ( $SCOMInstallPath in $SCOMInstallPaths )
+		{
+		If ( $True -eq ( Test-path "$LogicalDisk\$SCOMInstallPath" ) )
+			{
+			$SCOMLOGDir = "$LogicalDisk\$SCOMInstallPath"
+			write-host "MCM Log directory = $($SCOMLOGDir)"
+			}
+		}
+	}
+
+# Debug for directory names
+#$SCOMLOGDir
+
+
+
+# Check for for DOT NET Windows SDK install of gacutil.exe on server
+#========================================================================
+# https://blakedrumm.com/blog/verify-assemblies-loaded-with-gacutil/
+# 	cd "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools"
+#	Run this GACUtil Command to List the Assemblies installed:
+#	Powershell:
+#	.\gacutil /L
+#========================================================================
+
+$GACUTILSearchPath = (gci "C:\Program Files (x86)\Microsoft SDKs\windows\*\bin\NETFX 4.*\gacutil.exe" -recurse)
+$GACUTILSearchPath.Count
+
+$FIPSDOTNETConfigSettingsOutput += "# FIPS GACUTIL SCOM Cryptography DLL verification"
+$FIPSDOTNETConfigSettingsOutput += "#================================================"
+$FIPSDOTNETConfigSettingsOutput += ""
+
+If ( ($GACUTILSearchPath.DirectoryName).Count -eq 0 ) 
+	{
+	$FIPSDOTNETConfigSettingsOutput += "DOT NET Windows SDK NOT installed. Install or copy gacutil to monitoring repository path" 
+	}
+
+If ( ($GACUTILSearchPath.DirectoryName).Count -gt 0 ) 
+	{
+	write-host "DOT NET Windows SDK installed with gacutil.exe to register FIPS cartography dll"
+	$FIPSDOTNETConfigSettingsOutput += "DOT NET Windows SDK installed"
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	# cd "C:\Program Files (x86)\Microsoft SDKs\windows\v8.1A\bin\NETFX 4.5.1 Tools\x64"
+	$FIPSDOTNETConfigSettingsOutput += "Path for directory where gacutil.exe resides"
+	$FIPSDOTNETConfigSettingsOutput += $GACUTILSearchPath.DirectoryName
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	cd $GACUTILSearchPath.DirectoryName[0]
+	$GacutilAssemblies = (.\gacutil.exe /L)
+	# $GacutilAssemblies
+
+	$SCOMFIPSDLL = $GacutilAssemblies | where { $_ -eq "Microsoft.EnterpriseManagement.Cryptography.dll" }
+	
+	If ( $SCOMFIPSDLL.Count -eq 0 )
+		{
+		$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: FIPS cartography DLL NOT installed"
+		$FIPSDOTNETConfigSettingsOutput += "Run 'gacutil.exe /i' with path of Microsoft.EnterpriseManagement.Cryptography.dll to register FIPS cartography dll"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		$FIPSDOTNETConfigSettingsOutput += "# Cryptography assemblies installed on SCOM server $($SCOMServer)"
+		$FIPSDOTNETConfigSettingsOutput += "#================================================================"
+		$FIPSDOTNETConfigSettingsOutput += $GacutilAssemblies | where{ $_ -like "*cryptography*" }
+		$FIPSDOTNETConfigSettingsOutput += "#================================================================"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	If ( $SCOMFIPSDLL.Count -eq 1 )
+		{
+		$FIPSDOTNETConfigSettingsOutput += "SCOM FIPS cartography DLL installed"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	}
+
+
+
+# Check DOT NET versions machine.config for cryptography settings
+#========================================================================
+$FIPSDOTNETConfigSettingsOutput += "# FIPS DOTNET machine.config file verification on Server $($SCOMServer)"
+$FIPSDOTNETConfigSettingsOutput += "#=================================================================================================="
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# Backup machine.config AND audit cryptography section contained in DOT NET machine.config files"
+$FIPSDOTNETConfigSettingsOutput += "#=================================================================================================="
+$FIPSDOTNETConfigSettingsOutput += ""
+
+$DOTNETVersions = $("Framework\v2.0.50727\CONFIG","Framework\v4.0.30319\Config","Framework64\v4.0.30319\Config")
+
+# PowerShell commands, open PowerShell as Administrator
+#========================================
+foreach ( $DOTNETVersion in $DOTNETVersions )
+	{
+	cd "C:\Windows\Microsoft.NET\$DOTNETVersion"
+	if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion" )
+		{
+		if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config" )
+			{
+			if ( $NULL -eq $NOTLocalSystem )
+				{
+				copy machine.config machine.config.$date
+				$FIPSDOTNETConfigSettingsOutput += "Backed up C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config.$date"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				}
+			}
+
+		if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config.202*" )
+			{
+			#copy machine.config machine.config.$date
+			$FIPSDOTNETConfigSettingsOutput += "machine.config backup exists"
+			}
+		}
+
+	# Audit SCOM web.config files
+	#========================================
+
+	# Check SCOM Console Monitoring View web.config file
+	#========================================================================
+	# Long path
+	# If ( test-path "D:\Program Files\Microsoft System Center\Operations Manager\WebConsole\MonitoringView" )
+	# If ( test-path "D:\Program Files\Microsoft System Center\Operations Manager\WebConsole\$website )
+	#========================================================================
+
+	$FIPSDOTNETConfigSettingsOutput += "# Individual SCOM Applications web.config file configuration audit"
+	$FIPSDOTNETConfigSettingsOutput += "#================================================================="
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	# Comment out unneeded
+	#========================
+	# $SCOMIISWebsites = $("AppDiagnostics\Web","Dashboard","MonitoringView","$SSRSLOGDir")
+	$SCOMIISWebsites = $("MonitoringView")
+	$SCOMIISWebsites
+
+	foreach ( $website in $SCOMIISWebsites )
+		{
+		If ( test-path "$SCOMLOGDir\$website" )
+			{
+			cd "$SCOMLOGDir\$website"
+			}
+		If ( test-path "$SCOMLOGDir\$website\web.config" )
+			{
+			# Audit for cryptography DLL
+			#========================================
+			$AuditMachineConfig = gc web.config | select-string -pattern "Microsoft.EnterpriseManagement.Cryptography"
+
+			if ( $NULL -eq $AuditMachineConfig )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: Missing Microsoft.EnterpriseManagement.Cryptography DLL configuration"
+				$FIPSDOTNETConfigSettingsOutput += "File Location = C:\Windows\Microsoft.NET\$DOTNETVersion"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				If ( $null -ne ( gc web.config | select-string -pattern "cryptoClass" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# CryptoClass strings found in machine.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "cryptoClass"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			if ( $NULL -ne $AuditMachineConfig )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Microsoft.EnterpriseManagement.Cryptography DLL configuration"
+				$FIPSDOTNETConfigSettingsOutput += "File Location = C:\Windows\Microsoft.NET\$DOTNETVersion"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				}
+
+			# Check for configuration entries
+			#================================
+			if ( $website -ne "$SSRSLOGDir" )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "# SCOM Web Application"
+				$FIPSDOTNETConfigSettingsOutput += "web.config PATH = $website"
+				$FIPSDOTNETConfigSettingsOutput += "#==================================================="
+				}
+			# This is not part of a STIG, but has a web.config file - changes below not tested for functionality
+			#================================
+			If ( ( gc web.config | select-string -pattern "symmetricAlgorithm iv=" ).Count -gt 0  )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified SHA256 symmetric algorithm configuration"
+				}
+			If ( gc web.config | select-string -pattern "connection autoSignIn" ) 
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified connection autoSignIn configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "machineKey validationKey" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified machineKey validationKey configuration"
+				}
+			If ( ( ( gc web.config | select-string -pattern "session encryptionKey" ) -AND ( gc web.config | select-string -pattern "SHA256" ) ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified session encryptionKey and SHA256 token algorithm configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "httpErrors errorMode" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified httpErrors errorMode Detailed debug configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "DefaultErrorHandling" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified DefaultErrorHandling configuration"
+				}
+
+			# Check for NULL missing entries
+			#================================
+			If ( $null -eq ( gc web.config | select-string -pattern "symmetricAlgorithm iv=" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing SHA256 symmetric algorithm"
+				If ( $null -ne ( gc web.config | select-string -pattern "symmetricAlgorithm" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# symmetricAlgorithm strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "symmetricAlgorithm"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "connection autoSignIn" ) ) 
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing connection autoSignIn stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "autoSignIn" ) ) 
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# autoSignIn strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "autoSignIn"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( ( ( gc web.config | select-string -pattern "machineKey" ) -OR ( gc web.config | select-string -pattern "validationKey" ) ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing machineKey validationKey stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "machineKey validationKey" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'machineKey validationKey' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "machineKey validationKey"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( ( gc web.config | select-string -pattern "session encryptionKey" ) -AND ( gc web.config | select-string -pattern "SHA256" ) ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "# Missing connection session encryptionKey stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "session encryptionKey" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# Connection strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "session encryptionKey"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "httpErrors errorMode" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing 'httpErrors errorMode Detailed' stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "httpErrors errorMode" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'httpErrors errorMode' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "httpErrors errorMode"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					$FIPSDOTNETConfigSettingsOutput += "Check Nathan Gau's blog to change web console settings, see URL https://nathangau.wordpress.com/2016/12/02/scom-2012-webconsole-and-fips-compatibility/"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "DefaultErrorHandling" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing 'DefaultErrorHandling' stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "DefaultErrorHandling" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'DefaultErrorHandling' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "DefaultErrorHandling"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					$FIPSDOTNETConfigSettingsOutput += "Check Kevin Holman's web console blog to change web console settings, see URL https://kevinholman.com/2020/09/15/how-to-change-web-console-defaults-in-scom-2019/"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			}
+			$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	}
+
+$FIPSDOTNETConfigSettingsOutput
+
+$FIPSDOTNETConfigSettingsOutput = $FIPSDOTNETConfigSettingsOutput | out-string
+
+
+#============================================================
+$Result = "GOOD"
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"$FIPSDOTNETConfigSettingsOutput")
+
+$bag.AddValue('Result',$Result)
+#$bag.AddValue('Count',$Test)
+#$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$FIPSDOTNETConfigSettingsOutput)
+
+
+# Return all bags
+$bag
+#============================================================
+#=================================================================================
+# End MAIN script section
+
+
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOM FIPS WebConsole DOTNET Configuration Script Completed.  Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
+                </ScriptBody>
+                <TimeoutSeconds>$Config/TimeoutSeconds$</TimeoutSeconds>
+              </ProbeAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="PA">
+                <Node ID="Scheduler" />
+              </Node>
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <OutputType>System!System.PropertyBagData</OutputType>
+      </DataSourceModuleType>
+
       <WriteActionModuleType ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA" Accessibility="Internal" Batching="false">
         <Configuration>
           <xsd:element minOccurs="1" name="TimeoutSeconds" type="xsd:integer" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
@@ -1720,7 +1528,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Comp
           <Composite>
             <MemberModules>
               <WriteAction ID="PSWA" TypeID="Windows!Microsoft.Windows.PowerShellWriteAction">
-                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1023.ps1</ScriptName>
+                <ScriptName>Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1024.ps1</ScriptName>
                 <ScriptBody>
 #=================================================================================
 #  Script to gather SCOMCore alerts and close via on demand task
@@ -1734,7 +1542,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Report Script Comp
 #=================================================================================
 # Assign script name variable for use in event logging.
 # ScriptName should be the same as the ID of the module that the script is contained in
-$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1023.ps1"
+$ScriptName = "Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA.v1024.ps1"
 $EventID = "633"
 #=================================================================================
 
@@ -1810,6 +1618,54 @@ $Test = $SCOMCoreReportAlerts.Count
 $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCore alerts gathered for ($date).")
 
 
+# Agent resources alerts
+$AgentResources = $SCOMCoreMonitorAlerts | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost*" ) }
+$AgentResources.Count
+
+if ( $AgentResources.Count -gt 0 )
+	{
+	# All
+	$AgentResourcesFormatted = $AgentResources | ft TimeRaised,NetbiosComputerName,Description -auto -wrap
+	# Break out variants MonitoringHost Private Bytes/Handle Count
+	$PrivateBytes = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Private Bytes*" ) }
+	$PrivateBytes.Count
+	$HandleCount = $AgentResources | ? { ( $_.Name -like "Agent Resources Exceeded Threshold: MonitoringHost Handle Count*" ) }
+	$HandleCount.Count
+
+	# Operations Manager failed alerts
+	$OpsMgrfailedAlerts = $SCOMCoreAlertsSinceLastReport | ? { ( $_.Name -like "Operations Manager failed*" ) `
+		-AND ( $_.Description -like "*The paging file is too small*" )
+		}
+	$OpsMgrfailedAlerts.Count
+	#$OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap
+	}
+
+# Debug - Tally and build display of $SCOMCoreReportAlerts
+#$SCOMCoreAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,Description
+
+# NOT Monitored server alerts
+$NOTMonitoredServers = $SCOMCoreMonitorAlerts | ? { ( $_.Name -eq "Health Service Heartbeat Failure" ) }
+$NOTMonitoredServers.Count
+
+# Remaining alerts
+$Remaining = @()
+$Remaining = $SCOMCoreMonitorAlerts | ? { ( $_.Name -ne "Health Service Heartbeat Failure" ) `
+	-AND ( $_.Name -notlike "Agent Resources Exceeded Threshold: MonitoringHost*" ) `
+	}
+$Remaining.Count
+
+
+#
+# Create table output
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+#
+# Create table output (no description)
+$SCOMCoreServerAlerts = $SCOMCoreReportAlerts | select MonitoringObjectDisplayName,TimeRaised,Name
+
+$Test = $SCOMCoreServerAlerts.count
+
+
 #
 # Build report
 $SCOMCoreAMessage = @()
@@ -1840,6 +1696,80 @@ if ( $SCOMCoreReportAlerts.count -gt 0 )
 	$SCOMCoreAMessage += "# Closed SCOMCore alerts = $($SCOMClosedReportAlerts.Count)"
 	$SCOMCoreAMessage += "#=========================================================="
 	$SCOMCoreAMessage += "#"
+
+	if ( $AgentResources.Count -gt 0 )
+		{
+		$SCOMCoreAMessage += "# Agent Resources alert breakdown"
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "# Agent Private Bytes alerts = $($PrivateBytes.Count)"
+		$SCOMCoreAMessage += "# Agent Handle Count alerts = $($HandleCount.Count)"
+		$SCOMCoreAMessage += "#"
+
+		if ( ( $HandleCount.Count -gt 0 ) -AND ( $HandleCount.count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Handle Count details"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $HandleCount.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 handle count alerts for report run get-scomalert for ALL details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $HandleCount | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( ( $PrivateBytes.Count -gt 0 ) -AND ( $PrivateBytes.Count -le 10 ) )
+			{
+			$SCOMCoreAMessage += "# Private Bytes agent alert details"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		if ( $PrivateBytes.Count -gt 10 )
+			{
+			$SCOMCoreAMessage += "More than 10 private byte alerts for report run get-scomalert for more details"
+			$SCOMCoreAMessage += "First 10 alerts displayed"
+			$SCOMCoreAMessage += $PrivateBytes | sort -property TimeRaised -desc | select -first 10 | ft TimeRaised,NetbiosComputerName,Description -auto -wrap | out-string
+			$SCOMCoreAMessage += ""
+			}
+		}
+		if ( $OpsMgrfailedAlerts -gt 0 )
+			{
+			$SCOMCoreAMessage += "# OperationsManager and 'paging file is too small' alerts"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $OpsMgrfailedAlerts | ft TimeRaised,NetbiosComputerName -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $Remaining.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# Remaining alerts not classified"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += $Remaining | ft TimeRaised,MonitoringObjectDisplayName,Name -auto -wrap | out-string
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			}
+		if ( $NOTMonitoredServers.Count -gt 0 )
+			{
+			$SCOMCoreAMessage += "# 'NOT monitored servers"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += "# 'NOT monitored server count = $($NOTMonitoredServers.Count)"
+			$SCOMCoreAMessage += "#================================================"
+			$SCOMCoreAMessage += ""
+			if ( $NOTMonitoredServers.Count -gt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored servers greater than 20"
+				}
+			if ( $NOTMonitoredServers.Count -lt 20 )
+				{
+				$SCOMCoreAMessage += "# 'NOT monitored server detail"			
+				$SCOMCoreAMessage += "#================================================"
+				$SCOMCoreAMessage += $NOTMonitoredServers | ft TimeRaised,MonitoringObjectDisplayName -auto -wrap | out-string
+				$SCOMCoreAMessage += "#================================================"
+				}
+			$SCOMCoreAMessage += ""
+		$SCOMCoreAMessage += "#================================================"
+		$SCOMCoreAMessage += "#"
+			}
 	}
 
 $SCOMCoreAMessage
@@ -1929,7 +1859,7 @@ if ( $SCOMCoreReportAlerts.Count -gt 0 )
 						$ActiveMonitor.ID
 						write-host " Resetting Health State on '" + $ActiveMonitor.FullName + "'" 
 						write-host ""
-						$ActiveMonitor.ResetMonitoringState($ActiveMonitor.ID)
+						$ActiveMonitor.ResetMonitoringState($ActiveMonitor)
 						}
 					}
 				}
@@ -1944,7 +1874,7 @@ if ( $SCOMCoreReportAlerts.Count -gt 0 )
 # Debug Write event for rule closure
 #===================================
 # $UnhealthyMonitors = $($UnhealthyMonitors | measure-object -sum).sum
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset auto-close completed on ($date).")
+#$momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive DailyTasks SystemCenter Core Monitoring monitor reset auto-close completed on ($date).")
 #=================================================================================
 
 #
@@ -1974,7 +1904,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"# Proactive System Center Core Mo
 #Log an event for script ending and total execution time.
 $EndTime = Get-Date
 $ScriptTime = ($EndTime - $StartTime).TotalSeconds
-$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"`n Script Completed. `n Script Runtime: ($ScriptTime) seconds.")
 #=================================================================================
 # End of script
                 </ScriptBody>
@@ -2182,7 +2112,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
       <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
         <Category>Alert</Category>
         <DataSources>
-          <DataSource ID="DS" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.DataSource">
+          <DataSource ID="DS" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource">
             <TimeoutSeconds>900</TimeoutSeconds>
           </DataSource>
         </DataSources>
@@ -2202,87 +2132,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
           </WriteAction>
         </WriteActions>
       </Rule>
-      <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
-        <Category>Alert</Category>
-        <DataSources>
-          <DataSource ID="DS" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource">
-            <TimeoutSeconds>900</TimeoutSeconds>
-          </DataSource>
-        </DataSources>
-        <WriteActions>
-          <WriteAction ID="WA" TypeID="Health!System.Health.GenerateAlert">
-            <Priority>1</Priority>
-            <Severity>0</Severity>
-            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.Rule.AlertMessage"]$</AlertMessageId>
-            <AlertParameters>
-              <AlertParameter1>$Data/Property[@Name='Count']$</AlertParameter1>
-              <AlertParameter2>$Data/Property[@Name='Message']$</AlertParameter2>
-              <AlertParameter3>$Data/Property[@Name='Summary']$</AlertParameter3>
-            </AlertParameters>
-            <Suppression>
-              <SuppressionValue>$Data/Property[@Name='Message']$</SuppressionValue>
-            </Suppression>
-          </WriteAction>
-        </WriteActions>
-      </Rule>
       <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
-        <Category>Alert</Category>
-        <DataSources>
-          <DataSource ID="DS" TypeID="Windows!Microsoft.Windows.EventProvider">
-            <LogName>Operations Manager</LogName>
-            <Expression>
-              <And>
-                <Expression>
-                  <SimpleExpression>
-                    <ValueExpression>
-                      <XPathQuery Type="UnsignedInteger">EventDisplayNumber</XPathQuery>
-                    </ValueExpression>
-                    <Operator>Equal</Operator>
-                    <ValueExpression>
-                      <Value Type="UnsignedInteger">636</Value>
-                    </ValueExpression>
-                  </SimpleExpression>
-                </Expression>
-                <Expression>
-                  <SimpleExpression>
-                    <ValueExpression>
-                      <XPathQuery Type="String">PublisherName</XPathQuery>
-                    </ValueExpression>
-                    <Operator>Equal</Operator>
-                    <ValueExpression>
-                      <Value Type="String">Health Service Script</Value>
-                    </ValueExpression>
-                  </SimpleExpression>
-                </Expression>
-                <Expression>
-                  <RegExExpression>
-                    <ValueExpression>
-                      <XPathQuery Type="String">EventDescription</XPathQuery>
-                    </ValueExpression>
-                    <Operator>ContainsSubstring</Operator>
-                    <Pattern>SCOMCore Daily Report Alert for </Pattern>
-                  </RegExExpression>
-                </Expression>
-              </And>
-            </Expression>
-          </DataSource>
-        </DataSources>
-        <WriteActions>
-          <WriteAction ID="Alert" TypeID="Health!System.Health.GenerateAlert">
-            <Priority>1</Priority>
-            <Severity>0</Severity>
-            <AlertName />
-            <AlertDescription />
-            <AlertOwner />
-            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage"]$</AlertMessageId>
-            <AlertParameters>
-              <AlertParameter1>$Data/EventDescription$</AlertParameter1>
-            </AlertParameters>
-            <Suppression />
-          </WriteAction>
-        </WriteActions>
-      </Rule>
-      <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Task.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
         <Category>Alert</Category>
         <DataSources>
           <DataSource ID="DS" TypeID="Windows!Microsoft.Windows.EventProvider">
@@ -2331,7 +2181,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
             <AlertName />
             <AlertDescription />
             <AlertOwner />
-            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Task.Rule.AlertMessage"]$</AlertMessageId>
+            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage"]$</AlertMessageId>
             <AlertParameters>
               <AlertParameter1>$Data/EventDescription$</AlertParameter1>
             </AlertParameters>
@@ -2348,7 +2198,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
             <SyncTime>05:31</SyncTime>
 			<TimeoutSeconds>120</TimeoutSeconds>
 		    <StringParamExample>D:\TOOLS\</StringParamExample>  <!-- Just an example of some string data to pass into the script -->
-		    <ComputerName>##SCOMDWSERVERNAME##</ComputerName>  <!-- Might need to change the number of Host entries in this line depending on your target class -->
+		    <ComputerName>LIBEW054AAK2OM2</ComputerName>  <!-- Might need to change the number of Host entries in this line depending on your target class -->
           </DataSource>
         </DataSources>
         <ConditionDetection ID="CD" TypeID="System!System.ExpressionFilter">
@@ -2383,6 +2233,28 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
           </WriteAction>
         </WriteActions>
       </Rule>
+      <Rule ID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Alert.Rule" Enabled="true" Target="SC!Microsoft.SystemCenter.ManagementServer" ConfirmDelivery="true" Remotable="true" Priority="Normal" DiscardLevel="100">
+        <Category>Alert</Category>
+        <DataSources>
+          <DataSource ID="DS" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.DataSource">
+            <TimeoutSeconds>300</TimeoutSeconds>
+          </DataSource>
+        </DataSources>
+        <WriteActions>
+          <WriteAction ID="WA" TypeID="Health!System.Health.GenerateAlert">
+            <Priority>1</Priority>
+            <Severity>0</Severity>
+            <AlertMessageId>$MPElement[Name="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Alert.Rule.AlertMessage"]$</AlertMessageId>
+            <AlertParameters>
+              <AlertParameter1>$Data/Property[@Name='Result']$</AlertParameter1>
+              <AlertParameter2>$Data/Property[@Name='Summary']$</AlertParameter2>
+            </AlertParameters>
+            <Suppression>
+              <SuppressionValue>$Data/Property[@Name='Summary']$</SuppressionValue>
+            </Suppression>
+          </WriteAction>
+        </WriteActions>
+      </Rule>
     </Rules>
     <Tasks>
       <Task ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task" Accessibility="Public" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" Timeout="120" Remotable="true">
@@ -2393,7 +2265,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
       </Task>
     </Tasks>
     <Monitors>
-	  <UnitMonitor ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor" Accessibility="Public" Enabled="false" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ParentMonitorID="Health!System.Health.AvailabilityState" Remotable="true" Priority="Normal" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.MonitorType" ConfirmDelivery="true">
+	  <UnitMonitor ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor" Accessibility="Public" Enabled="true" Target="SC!Microsoft.SystemCenter.AllManagementServersPool" ParentMonitorID="Health!System.Health.AvailabilityState" Remotable="true" Priority="Normal" TypeID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.MonitorType" ConfirmDelivery="true">
         <Category>AvailabilityHealth</Category>
         <AlertSettings AlertMessage="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.AlertMessage">
           <AlertOnState>Warning</AlertOnState>  <!-- Warning or Error should match OperationalStates below  -->
@@ -2412,7 +2284,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
           <IntervalSeconds>86300</IntervalSeconds>
 		  <SyncTime>05:35</SyncTime>
 		  <StringParamExample>D:\TOOLS\</StringParamExample>  <!-- Just an example of some string data to pass into the script -->
-		  <ComputerName>##SCOMDWSERVERNAME##</ComputerName>  <!-- Might need to change the number of Host entries in this line depending on your target class -->
+		  <ComputerName>LIBEW054AAK2OM2</ComputerName>  <!-- Might need to change the number of Host entries in this line depending on your target class -->
           <TimeoutSeconds>120</TimeoutSeconds>
 		  <MatchCount>1</MatchCount>  <!-- This is the number of consecutive matches that must be met before the monitor will change state.  Also a good example of passing in Integer data. -->
         </Configuration>
@@ -2569,10 +2441,9 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
     <StringResources>
       <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.Rule.AlertMessage" />
       <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage" />
-      <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.Rule.AlertMessage" />
-      <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Task.Rule.AlertMessage" />
       <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Monitor.AlertMessage" />
       <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Script.Alert.Rule.AlertMessage" />
+      <StringResource ID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Alert.Rule.AlertMessage" />
     </StringResources>
   </Presentation>
   <LanguagePacks>
@@ -2581,6 +2452,7 @@ $momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOMCoreAlerts Close Script Compl
         <DisplayString ElementID="Proactive.Microsoft.System.Center.Core.Monitoring.Addendum">
           <Name>Proactive Microsoft System Center Core Monitoring Addendum</Name>
           <Description>
+v1.0.2.4  13 Aug 2025 SCOM STIG V-237439 FIPS Compliance workflow DS/rule/alert
 v1.0.2.3  19 Nov 2024 DWDataRP, Report and Close report changes
 v1.0.2.2  18 Oct 2024 Renumber events.  Updated overrides, DWDataRP executable rule/monitor DS with overrides, disabled event collection
 v1.0.1.8  21 Dec 2023 Updated Monitor/Rule closure logic, whitespace audit
@@ -2600,10 +2472,6 @@ v1.0.0.0   6 Apr 2021 Created management pack for SCOM Core mgmt pack auto closu
           <Description>Created 21 Apr 2022 - KWJ - Agent Handle count over 30k to get in this group</Description>
         </DisplayString>
 
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.DataSource">
-          <Name>Proactive DailyTasks SCOMCoreAlerts report DataSource</Name>
-          <Description>This datasource generates SCOMCoreAlerts report DataSource</Description>
-        </DisplayString>
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.DataSource">
           <Name>Proactive DailyTasks SCOMCoreAlerts report and auto-close DataSource</Name>
           <Description>This datasource generates SCOMCoreAlerts report and auto-close DataSource</Description>
@@ -2616,12 +2484,13 @@ v1.0.0.0   6 Apr 2021 Created management pack for SCOM Core mgmt pack auto closu
           <Name>Proactive DailyTasks SCOMCoreAlerts DWDataRP Rule Script DataSource</Name>
           <Description>This datasource generates SCOMCoreAlerts DWDataRP Rule script DataSource</Description>
         </DisplayString>
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Alert.WA">
-          <Name>Proactive DailyTasks SCOMCoreAlerts report and auto-close on-demand task</Name>
-          <Description>This write-action task generates SCOMCoreAlerts report and auto-close DataSource</Description>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Datasource">
+          <Name>Proactive DailyTasks SCOMCoreAlerts FIPS Compliance Script DataSource</Name>
+          <Description>This datasource generates SCOMCoreAlerts FIPS Compliance Script Rule DataSource</Description>
         </DisplayString>
+
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.WA">
-          <Name>Proactive DailyTasks SCOMCoreAlerts Close report and auto-close on-demand task</Name>
+          <Name>Proactive DailyTasks SCOMCoreAlerts report and auto-close on-demand task</Name>
           <Description>This write-action task generates SCOMCoreAlerts report and auto-close DataSource</Description>
         </DisplayString>
 
@@ -2640,28 +2509,11 @@ v1.0.0.0   6 Apr 2021 Created management pack for SCOM Core mgmt pack auto closu
 
 {2}</Description>
         </DisplayString>
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.Rule">
-          <Name>Proactive DailyTasks SCOMCoreAlerts Close Report Script Alert Rule</Name>
-          <Description>Proactive Scheduled rule to kick off datasource at 0615 M-F</Description>
-        </DisplayString>
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Alert.Rule.AlertMessage">
-          <Name>Proactive DailyTasks SCOMCoreAlerts Close Report Script Alert Rule</Name>
-          <Description>{1}
-
-{2}</Description>
-        </DisplayString>
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Alert.Rule">
           <Name>Proactive DailyTasks SCOMCoreAlerts task Report Manual Task Rule</Name>
         </DisplayString>
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task.Rule.AlertMessage">
           <Name>Proactive DailyTasks SCOMCoreAlerts Report Script Task Rule Alert</Name>
-          <Description>{0}</Description>
-        </DisplayString>
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Task.Alert.Rule">
-          <Name>Proactive DailyTasks SCOMCoreAlerts task Close Report Manual Task Rule</Name>
-        </DisplayString>
-        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Close.Script.Task.Rule.AlertMessage">
-          <Name>Proactive DailyTasks SCOMCoreAlerts Close Report Script Task Rule Alert</Name>
           <Description>{0}</Description>
         </DisplayString>
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.DWDataRP.Script.Alert.Rule">
@@ -2682,7 +2534,15 @@ v1.0.0.0   6 Apr 2021 Created management pack for SCOM Core mgmt pack auto closu
           <Description>Proactive DailyTasks SCOMCoreAlerts DWDataRP Script Alert Rule
 {2}</Description>
         </DisplayString>
-
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Alert.Rule">
+          <Name>Proactive DailyTasks SCOMCoreAlerts FIPS Compliance Script Alert Rule</Name>
+          <Description></Description>
+        </DisplayString>
+        <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.FIPS.Compliance.Script.Alert.Rule.AlertMessage">
+          <Name>Proactive DailyTasks SCOMCoreAlerts FIPS Compliance Script Alert Rule</Name>
+          <Description>Proactive DailyTasks SCOMCoreAlerts FIPS STIG V-237439 Compliance Script Alert Rule
+{2}</Description>
+        </DisplayString>
         <DisplayString ElementID="Proactive.DailyTasks.SCOMCoreAlerts.Report.Script.Task">
           <Name>Proactive DailyTasks SCOMCoreAlerts Autoclose Report Script Task</Name>
           <Description>Proactive DailyTasks SCOMCoreAlerts AutoClose task to kick off on-demand</Description>
