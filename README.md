@@ -1,11 +1,12 @@
-# SCOMCoreAddendum - Proactive.Microsoft.System.Center.Core.Monitoring.Addendum v1.0.2.3
+# SCOMCoreAddendum - Proactive.Microsoft.System.Center.Core.Monitoring.Addendum v1.0.2.4
 
 Download [here](https://github.com/theKevinJustin/SCOMCoreAddendum/blob/main/Microsoft.Windows.Server.DNS.Monitoring.Addendum.xml)
 
 ### Proactive.Microsoft.System.Center.Core.Monitoring.Addendum.xml
-Proactive.Microsoft.System.Center.Core.Monitoring.Addendum - Management pack provides multiple overrides, dialy reports, alert closure, DWDataRP integration rule/monitor to point out SCOM DW size and storage issues.  Creates a High agent handle count with definable RegEx.
+Proactive.Microsoft.System.Center.Core.Monitoring.Addendum - Management pack provides multiple overrides, daily reports, alert closure, DWDataRP integration rule/monitor, and FIPS compliance datasource.  All efforts to point out SCOM DW size and storage issues.  Pack also creates a High agent handle count with definable RegEx.
 
 #### Additional capabilities include:
+SCOM server FIPS compliance datasource rule
 DWDataRP workflows for rules/monitors to alert when Perf,State,Alerts, etc are taking too much of the SCOM datawarehouse.
 Overrides common alert noise from SCOM core pack.
 
@@ -14,6 +15,7 @@ Blog [https://kevinjustin.com/blog/2023/08/30/scomcore-addendum-pack](https://ke
 
 # Version History:
 ```
+v1.0.2.4  13 Aug 2025 SCOM STIG V-237439 FIPS Compliance workflow DS/rule/alert
 v1.0.2.3  19 Nov 2024 DWDataRP, Report and Close report changes
 v1.0.2.2  18 Oct 2024 Renumber events.  Updated overrides, DWDataRP executable rule/monitor DS with overrides, disabled event collection
 v1.0.1.8  21 Dec 2023 Updated Monitor/Rule closure logic, whitespace audit
