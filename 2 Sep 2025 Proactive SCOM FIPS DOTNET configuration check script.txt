@@ -1,0 +1,430 @@
+#=================================================================================
+#  Script to check SCOM for FIPS DOTNET configuration script
+#
+#  Author:  Kevin Justin
+#
+#  Version:  1.0
+#
+#=================================================================================
+
+# Constants section - modify stuff here:
+#=================================================================================
+# Assign script name variable for use in event logging
+$ScriptName = "Proactive.Microsoft.SCOMMS.Window.Monitoring.FIPS.Compliance.Script.Datasource.v1024.ps1"
+#$ScriptName = "Proactive.SQL.FIPS.V-214022.WebConsole.DOTNET.Configuration.DataSource.v1024.ps1"
+$EventID = "638"
+#=================================================================================
+
+# Starting Script section
+#=================================================================================
+# Gather the start time of the script
+$StartTime = Get-Date
+#Set variable to be used in logging events
+$whoami = whoami
+# Load MOMScript API
+$momapi = New-Object -comObject MOM.ScriptAPI
+#Log script event that we are starting task
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS WebConsole DOTNET Configuration Script is starting. Running as ($whoami).")
+# PropertyBag Script section - Monitoring scripts get this
+#=================================================================================
+# Load SCOM PropertyBag function
+$bag = $momapi.CreatePropertyBag()
+#=================================================================================
+
+
+# Begin MAIN script section
+#=================================================================================
+#$date = get-date -uFormat "%Y-%m-%d %H%M"
+$date = get-date -uFormat "%Y-%m-%d"
+
+$SCOMServer = $ENV:ComputerName
+
+#================================================================
+# Open PSEXEC -S to create PowerShell session as local system
+#================================================================
+#
+# Test session is running as local system
+#
+# whoami verification.
+#================================================================
+if ( ( whoami | where { $_ -like "NT Authority\system" } ).Count -gt 0 )
+	{
+	write-host "Running as Local System"
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Script IS running as Local System")
+	}
+if ( ( whoami | where { $_ -like "NT Authority\system" } ).Count -eq 0 )
+	{
+	write-host "NOT Running as Local System"
+	$NOTLocalSystem = ( whoami | where { $_ -like "NT Authority\system" } ).Count
+	$momapi.LogScriptEvent($ScriptName,$EventID,0,"Script is NOT Running as Local System")
+	#exit
+	}
+
+
+$Message = "Proactive SCOM STIG V-237439 FIPS WebConsole Configurations Script findings for $($date)"
+
+$FIPSDOTNETConfigSettingsOutput = @()
+
+$FIPSDOTNETConfigSettingsOutput += $Message
+$FIPSDOTNETConfigSettingsOutput += ""
+
+
+# Check FIPS Registry key is configured
+#==========================================
+$RegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy"
+[string]$FIPSEnabled = (Get-ItemProperty -Path $RegPath -Name Enabled).Enabled
+$FIPSEnabled
+
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# FIPS configuration verification on Server $($SCOMServer)"
+$FIPSDOTNETConfigSettingsOutput += "#========================================================="
+
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# FIPS Registry key verification"
+$FIPSDOTNETConfigSettingsOutput += "#==============================="
+	
+if ( $NULL -eq $FIPSEnabled )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' disabled"
+	$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: ENABLE FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy'"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' disabled")
+	}
+
+if ( $FIPSEnabled -eq "0" )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: Enable FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy'"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled")
+	}
+if ( $FIPSEnabled -eq "1" )
+	{
+	write-host "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += "FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled"
+	$FIPSDOTNETConfigSettingsOutput += ""
+	#$momapi.LogScriptEvent($ScriptName,$EventID,0,"Proactive SCOM FIPS RegKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy' enabled")
+	}
+
+
+# SCOM server web config file mining
+#=======================================
+# SCOM Install variants
+$SCOMInstallPaths = @("Program Files\Microsoft System Center\Operations Manager\WebConsole","Program Files\Microsoft System Center 2016\Operations Manager\WebConsole")
+# SSRS  Install variants
+# $SSRSInstallPaths = @("Program Files\Microsoft SQL Server\MSRS*\Reporting Services\ReportServer","Program Files\Microsoft SQL Server Reporting Services\SSRS\ReportServer")
+# Debug
+#$SCOMInstallPaths
+#$SCOMInstallPaths
+
+
+# Logical disk list
+# Validate logical disks where SCOM and SQL SSRS are installed
+$LogicalDisks = gwmi win32_logicaldisk | where { $_.DeviceID -ne "A:" }
+#$LogicalDisks.DeviceID
+
+foreach ( $LogicalDisk in $LogicalDisks.DeviceID )
+    {
+	#write-host "Logical Disk letter = $LogicalDisk"
+	foreach ( $SCOMInstallPath in $SCOMInstallPaths )
+		{
+		If ( $True -eq ( Test-path "$LogicalDisk\$SCOMInstallPath" ) )
+			{
+			$SCOMLOGDir = "$LogicalDisk\$SCOMInstallPath"
+			write-host "MCM Log directory = $($SCOMLOGDir)"
+			}
+		}
+	}
+
+# Debug for directory names
+#$SCOMLOGDir
+
+
+
+# Check for for DOT NET Windows SDK install of gacutil.exe on server
+#========================================================================
+# https://blakedrumm.com/blog/verify-assemblies-loaded-with-gacutil/
+# 	cd "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools"
+#	Run this GACUtil Command to List the Assemblies installed:
+#	Powershell:
+#	.\gacutil /L
+#========================================================================
+
+$GACUTILSearchPath = (gci "C:\Program Files (x86)\Microsoft SDKs\windows\*\bin\NETFX 4.*\gacutil.exe" -recurse)
+$GACUTILSearchPath.Count
+
+$FIPSDOTNETConfigSettingsOutput += "# FIPS GACUTIL SCOM Cryptography DLL verification"
+$FIPSDOTNETConfigSettingsOutput += "#================================================"
+$FIPSDOTNETConfigSettingsOutput += ""
+
+If ( ($GACUTILSearchPath.DirectoryName).Count -eq 0 ) 
+	{
+	$FIPSDOTNETConfigSettingsOutput += "DOT NET Windows SDK NOT installed. Install or copy gacutil to monitoring repository path" 
+	}
+
+If ( ($GACUTILSearchPath.DirectoryName).Count -gt 0 ) 
+	{
+	write-host "DOT NET Windows SDK installed with gacutil.exe to register FIPS cartography dll"
+	$FIPSDOTNETConfigSettingsOutput += "DOT NET Windows SDK installed"
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	# cd "C:\Program Files (x86)\Microsoft SDKs\windows\v8.1A\bin\NETFX 4.5.1 Tools\x64"
+	$FIPSDOTNETConfigSettingsOutput += "Path for directory where gacutil.exe resides"
+	$FIPSDOTNETConfigSettingsOutput += $GACUTILSearchPath.DirectoryName
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	cd $GACUTILSearchPath.DirectoryName[0]
+	$GacutilAssemblies = (.\gacutil.exe /L)
+	# $GacutilAssemblies
+
+	$SCOMFIPSDLL = $GacutilAssemblies | where { $_ -eq "Microsoft.EnterpriseManagement.Cryptography.dll" }
+	
+	If ( $SCOMFIPSDLL.Count -eq 0 )
+		{
+		$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: FIPS cartography DLL NOT installed"
+		$FIPSDOTNETConfigSettingsOutput += "Run 'gacutil.exe /i' with path of Microsoft.EnterpriseManagement.Cryptography.dll to register FIPS cartography dll"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		$FIPSDOTNETConfigSettingsOutput += "# Cryptography assemblies installed on SCOM server $($SCOMServer)"
+		$FIPSDOTNETConfigSettingsOutput += "#================================================================"
+		$FIPSDOTNETConfigSettingsOutput += $GacutilAssemblies | where{ $_ -like "*cryptography*" }
+		$FIPSDOTNETConfigSettingsOutput += "#================================================================"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	If ( $SCOMFIPSDLL.Count -eq 1 )
+		{
+		$FIPSDOTNETConfigSettingsOutput += "SCOM FIPS cartography DLL installed"
+		$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	}
+
+
+
+# Check DOT NET versions machine.config for cryptography settings
+#========================================================================
+$FIPSDOTNETConfigSettingsOutput += "# FIPS DOTNET machine.config file verification on Server $($SCOMServer)"
+$FIPSDOTNETConfigSettingsOutput += "#=================================================================================================="
+$FIPSDOTNETConfigSettingsOutput += ""
+$FIPSDOTNETConfigSettingsOutput += "# Backup machine.config AND audit cryptography section contained in DOT NET machine.config files"
+$FIPSDOTNETConfigSettingsOutput += "#=================================================================================================="
+$FIPSDOTNETConfigSettingsOutput += ""
+
+$DOTNETVersions = $("Framework\v2.0.50727\CONFIG","Framework\v4.0.30319\Config","Framework64\v4.0.30319\Config")
+
+# PowerShell commands, open PowerShell as Administrator
+#========================================
+foreach ( $DOTNETVersion in $DOTNETVersions )
+	{
+	cd "C:\Windows\Microsoft.NET\$DOTNETVersion"
+	if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion" )
+		{
+		if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config" )
+			{
+			if ( $NULL -eq $NOTLocalSystem )
+				{
+				copy machine.config machine.config.$date
+				$FIPSDOTNETConfigSettingsOutput += "Backed up C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config.$date"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				}
+			}
+
+		if ( Test-path "C:\Windows\Microsoft.NET\$DOTNETVersion\machine.config.202*" )
+			{
+			#copy machine.config machine.config.$date
+			$FIPSDOTNETConfigSettingsOutput += "machine.config backup exists"
+			}
+		}
+
+	# Audit SCOM web.config files
+	#========================================
+
+	# Check SCOM Console Monitoring View web.config file
+	#========================================================================
+	# Long path
+	# If ( test-path "D:\Program Files\Microsoft System Center\Operations Manager\WebConsole\MonitoringView" )
+	# If ( test-path "D:\Program Files\Microsoft System Center\Operations Manager\WebConsole\$website )
+	#========================================================================
+
+	$FIPSDOTNETConfigSettingsOutput += "# Individual SCOM Applications web.config file configuration audit"
+	$FIPSDOTNETConfigSettingsOutput += "#================================================================="
+	$FIPSDOTNETConfigSettingsOutput += ""
+
+	# Comment out unneeded
+	#========================
+	# $SCOMIISWebsites = $("AppDiagnostics\Web","Dashboard","MonitoringView","$SSRSLOGDir")
+	$SCOMIISWebsites = $("MonitoringView")
+	$SCOMIISWebsites
+
+	foreach ( $website in $SCOMIISWebsites )
+		{
+		If ( test-path "$SCOMLOGDir\$website" )
+			{
+			cd "$SCOMLOGDir\$website"
+			}
+		If ( test-path "$SCOMLOGDir\$website\web.config" )
+			{
+			# Audit for cryptography DLL
+			#========================================
+			$AuditMachineConfig = gc web.config | select-string -pattern "Microsoft.EnterpriseManagement.Cryptography"
+
+			if ( $NULL -eq $AuditMachineConfig )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "ACTION REQUIRED: Missing Microsoft.EnterpriseManagement.Cryptography DLL configuration"
+				$FIPSDOTNETConfigSettingsOutput += "File Location = C:\Windows\Microsoft.NET\$DOTNETVersion"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				If ( $null -ne ( gc web.config | select-string -pattern "cryptoClass" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# CryptoClass strings found in machine.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "cryptoClass"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			if ( $NULL -ne $AuditMachineConfig )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Microsoft.EnterpriseManagement.Cryptography DLL configuration"
+				$FIPSDOTNETConfigSettingsOutput += "File Location = C:\Windows\Microsoft.NET\$DOTNETVersion"
+				$FIPSDOTNETConfigSettingsOutput += ""
+				}
+
+			# Check for configuration entries
+			#================================
+			if ( $website -ne "$SSRSLOGDir" )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "# SCOM Web Application"
+				$FIPSDOTNETConfigSettingsOutput += "web.config PATH = $website"
+				$FIPSDOTNETConfigSettingsOutput += "#==================================================="
+				}
+			# This is not part of a STIG, but has a web.config file - changes below not tested for functionality
+			#================================
+			If ( ( gc web.config | select-string -pattern "symmetricAlgorithm iv=" ).Count -gt 0  )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified SHA256 symmetric algorithm configuration"
+				}
+			If ( gc web.config | select-string -pattern "connection autoSignIn" ) 
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified connection autoSignIn configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "machineKey validationKey" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified machineKey validationKey configuration"
+				}
+			If ( ( ( gc web.config | select-string -pattern "session encryptionKey" ) -AND ( gc web.config | select-string -pattern "SHA256" ) ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified session encryptionKey and SHA256 token algorithm configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "httpErrors errorMode" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified httpErrors errorMode Detailed debug configuration"
+				}
+			If ( ( gc web.config | select-string -pattern "DefaultErrorHandling" ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Verified DefaultErrorHandling configuration"
+				}
+
+			# Check for NULL missing entries
+			#================================
+			If ( $null -eq ( gc web.config | select-string -pattern "symmetricAlgorithm iv=" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing SHA256 symmetric algorithm"
+				If ( $null -ne ( gc web.config | select-string -pattern "symmetricAlgorithm" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# symmetricAlgorithm strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "symmetricAlgorithm"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "connection autoSignIn" ) ) 
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing connection autoSignIn stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "autoSignIn" ) ) 
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# autoSignIn strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "autoSignIn"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( ( ( gc web.config | select-string -pattern "machineKey" ) -OR ( gc web.config | select-string -pattern "validationKey" ) ).Count -gt 0 )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing machineKey validationKey stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "machineKey validationKey" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'machineKey validationKey' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "machineKey validationKey"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( ( gc web.config | select-string -pattern "session encryptionKey" ) -AND ( gc web.config | select-string -pattern "SHA256" ) ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "# Missing connection session encryptionKey stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "session encryptionKey" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# Connection strings found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "session encryptionKey"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "httpErrors errorMode" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing 'httpErrors errorMode Detailed' stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "httpErrors errorMode" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'httpErrors errorMode' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "httpErrors errorMode"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					$FIPSDOTNETConfigSettingsOutput += "Check Nathan Gau's blog to change web console settings, see URL https://nathangau.wordpress.com/2016/12/02/scom-2012-webconsole-and-fips-compatibility/"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			If ( $null -eq ( gc web.config | select-string -pattern "DefaultErrorHandling" ) )
+				{
+				$FIPSDOTNETConfigSettingsOutput += "Missing 'DefaultErrorHandling' stanza"
+				If ( $null -ne ( gc web.config | select-string -pattern "DefaultErrorHandling" ) )
+					{
+					$FIPSDOTNETConfigSettingsOutput += "# 'DefaultErrorHandling' string found in web.config file"
+					$FIPSDOTNETConfigSettingsOutput += "#===================================="
+					$FIPSDOTNETConfigSettingsOutput += gc web.config | select-string -pattern "DefaultErrorHandling"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					$FIPSDOTNETConfigSettingsOutput += "Check Kevin Holman's web console blog to change web console settings, see URL https://kevinholman.com/2020/09/15/how-to-change-web-console-defaults-in-scom-2019/"
+					$FIPSDOTNETConfigSettingsOutput += ""
+					}
+				}
+			}
+			$FIPSDOTNETConfigSettingsOutput += ""
+		}
+	}
+
+$FIPSDOTNETConfigSettingsOutput
+
+$FIPSDOTNETConfigSettingsOutput = $FIPSDOTNETConfigSettingsOutput | out-string
+
+
+#============================================================
+$Result = "GOOD"
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"$FIPSDOTNETConfigSettingsOutput")
+
+$bag.AddValue('Result',$Result)
+#$bag.AddValue('Count',$Test)
+#$bag.AddValue('Message',$Message)
+$bag.AddValue('Summary',$FIPSDOTNETConfigSettingsOutput)
+
+
+# Return all bags
+$bag
+#============================================================
+#=================================================================================
+# End MAIN script section
+
+
+# End of script section
+#=================================================================================
+#Log an event for script ending and total execution time.
+$EndTime = Get-Date
+$ScriptTime = ($EndTime - $StartTime).TotalSeconds
+$momapi.LogScriptEvent($ScriptName,$EventID,0,"SCOM FIPS WebConsole DOTNET Configuration Script Completed.  Script Runtime: ($ScriptTime) seconds.")
+#=================================================================================
+# End of script
